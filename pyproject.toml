@@ -1,0 +1,11 @@
+[project]
+name = "maindex-hermes-plugin"
+version = "1.0.0"
+requires-python = ">=3.9"
+dependencies = ["httpx"]
+
+[project.optional-dependencies]
+test = ["pytest>=7.0", "pytest-cov"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
