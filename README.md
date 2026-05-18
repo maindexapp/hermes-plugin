@@ -1,106 +1,108 @@
-# Maindex — Hermes Agent Plugin
+# Maindex — Hermes Agent Memory Provider
 
-Persistent, relational memory for [Hermes Agent](https://github.com/NousResearch/hermes-agent). This plugin connects Hermes to the [Maindex Expert API](https://expert.maindex.io) — a structured knowledge graph with multi-tier search, typed associations, collections, and full revision history. Your agent gets long-term memory that works across sessions, projects, and platforms.
+Persistent, relational memory for [Hermes Agent](https://github.com/NousResearch/hermes-agent). Connects Hermes to the [Maindex Expert API](https://expert.maindex.io): a structured knowledge graph with multi-tier search, typed associations, collections, and full revision history.
 
-This plugin uses the **Hermes MemoryProvider interface** to expose the Maindex Expert API through Hermes's tool system, lifecycle hooks, and configuration flow. It connects to the Expert REST API at `https://expert.maindex.io` — the same backend that powers the 14-tool MCP interface — but surfaces the 5 most essential tools through Hermes's native tool routing, along with automatic prefetch, sync, and memory mirroring.
-
-[Website](https://maindex.io) | [Help & FAQ](https://maindex.io/help) | [Dashboard](https://maindex.io/dashboard)
+[Website](https://maindex.io) | [Help & FAQ](https://maindex.io/help) | [Dashboard](https://maindex.io/dashboard) | [Expert API Docs](https://expert.maindex.io/docs)
 
 ## What's Included
 
-| Component                              | Description                                                                                                                  |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| **Memory Provider** (plugin)           | MemoryProvider implementation connecting Hermes to the Maindex Expert REST API with dual auth (API key + OAuth bearer token) |
-| **5 Agent Tools**                      | `maindex_search`, `maindex_keep`, `maindex_recall`, `maindex_update`, `maindex_forget`                                      |
-| **Automatic Prefetch**                 | Semantic search before each turn surfaces relevant memories as context                                                       |
-| **Turn Sync**                          | Conversation facts are stored automatically after each turn                                                                  |
-| **Memory Mirroring**                   | Built-in MEMORY.md and USER.md writes are mirrored to your Maindex graph                                                    |
-| **Maindex Core** (skill)              | Memory conventions, tool guidance, archivist behavior, and decision tree for effective knowledge management                    |
-| **Memory Organizer** (skill)          | Audit and organize your knowledge graph — find duplicates, create links, standardize tags, build collections                  |
+| Component | Description |
+| --- | --- |
+| **Memory Provider** | `MemoryProvider` implementation for the Maindex Expert REST API |
+| **5 Agent Tools** | `maindex_search`, `maindex_keep`, `maindex_recall`, `maindex_update`, `maindex_forget` |
+| **Lifecycle Hooks** | Prefetch, optional turn sync (off by default), memory mirroring, pre-compression snapshot |
+| **Skills** | `maindex-core` and `memory-organizer` (optional, copy to `~/.hermes/skills/`) |
 
 ## Prerequisites
 
 - [Hermes Agent](https://github.com/NousResearch/hermes-agent) installed
-- A Maindex account — [sign up at maindex.io](https://maindex.io)
-- An API key from [your dashboard](https://maindex.io/dashboard), or an OAuth bearer token
+- A [Maindex account](https://maindex.io) and an API key from [your dashboard](https://maindex.io/dashboard), or an OAuth bearer token
 
 ## Installation
 
-Copy (or symlink) this directory into your Hermes Agent's plugin directory:
+Hermes discovers memory providers from **`~/.hermes/plugins/<name>/`** (a directory with `__init__.py` and `plugin.yaml`). This repo's `plugin.yaml` sets `name: maindex`, so the install directory must be **`maindex`**.
+
+### Option 1: Hermes plugin installer (recommended)
 
 ```bash
-# From your hermes-agent repo root:
-cp -r /path/to/hermes-plugin plugins/memory/maindex
-
-# Or symlink for development:
-ln -s /path/to/hermes-plugin plugins/memory/maindex
+hermes plugins install maindexapp/hermes-plugin
 ```
 
-Then activate via the setup wizard or config:
+The installer reads `plugin.yaml` and installs to `~/.hermes/plugins/maindex/`.
+
+### Option 2: Manual clone
 
 ```bash
-# Interactive setup (prompts for API key):
+git clone https://github.com/maindexapp/hermes-plugin.git ~/.hermes/plugins/maindex
+```
+
+### Option 3: pip (Python package + directory install)
+
+`pip install` registers the package with Hermes's general plugin entry-point system. **Memory provider discovery still requires the plugin directory** under `~/.hermes/plugins/maindex/` (use Option 1 or 2). Pip is useful if you want the `maindex_hermes_plugin` package on your Python path:
+
+```bash
+pip install maindex-hermes-plugin
+# Still install the plugin directory for memory provider discovery:
+hermes plugins install maindexapp/hermes-plugin
+```
+
+## Activate
+
+```bash
+# Interactive setup (prompts for API key, runs connection check):
 hermes memory setup
 
 # Or set directly:
 hermes config set memory.provider maindex
+echo "MAINDEX_API_KEY=your-key" >> ~/.hermes/.env
 ```
 
-### Skills
+## Skills (optional)
 
-To use the bundled skills, copy them into your Hermes skills directory:
+Bundled skills are not loaded automatically. Copy them into your Hermes skills directory:
 
 ```bash
-cp -r plugins/memory/maindex/skills/* ~/.hermes/skills/
+cp -r ~/.hermes/plugins/maindex/skills/* ~/.hermes/skills/
 ```
 
 ## Configuration
 
-Set credentials via environment variables in your profile's `.env` file, or through `hermes memory setup`:
+| Variable | Description | Required |
+| --- | --- | --- |
+| `MAINDEX_API_KEY` | API key from [dashboard](https://maindex.io/dashboard) | One of API key or token |
+| `MAINDEX_TOKEN` | OAuth bearer token (alternative to API key) | is required |
+| `MAINDEX_COLLECTION` | Default collection slug for scoping memories | No |
 
-| Variable             | Description                                     | Required |
-| -------------------- | ----------------------------------------------- | -------- |
-| `MAINDEX_API_KEY`    | API key from [dashboard](https://maindex.io/dashboard) | One of these |
-| `MAINDEX_TOKEN`      | OAuth bearer token (alternative to API key)     | is required  |
-| `MAINDEX_COLLECTION` | Default collection slug for scoping (optional)  | No       |
+Config file: `$HERMES_HOME/maindex.json` (written by `hermes memory setup` or `save_config`).
 
-Both `MAINDEX_API_KEY` and `MAINDEX_TOKEN` are supported. Bearer token takes priority if both are set.
+| Key | Default | Description |
+| --- | --- | --- |
+| `collection` | — | Default collection slug |
+| `sync_turns` | `false` | When `true`, log each conversation turn automatically. Leave off and use `maindex_keep` for intentional memories. |
 
 ## Tools
 
-Once active, your agent has access to 5 Maindex tools:
+- **`maindex_search`** — Full-text, fuzzy, semantic, and hybrid search. Filter by tags, kind, collection.
+- **`maindex_keep`** — Store a memory with headline, body, tags, kind, collections.
+- **`maindex_recall`** — Retrieve a memory by ID (UUID or short ID like `mem-1a`).
+- **`maindex_update`** — Revise with full history (`body_append`, `body_replace`, `headline_replace`, etc.).
+- **`maindex_forget`** — Soft-delete (restorable).
 
-- **`maindex_search`** — Full-text, fuzzy, semantic, and hybrid search across memories. Filter by tags, kind, and collection.
-- **`maindex_keep`** — Store a new memory with headline, body, tags, kind, and collection assignment.
-- **`maindex_recall`** — Retrieve a specific memory by ID (UUID or short ID like `mem-1a`).
-- **`maindex_update`** — Revise an existing memory with full revision history preserved. Modes: `body_append`, `body_replace`, `headline_replace`, `headline_and_body_replace`, `revision_only`. Can also change `kind`, `canon_status`, `confidence`, and `verification_status`.
-- **`maindex_forget`** — Soft-delete a memory (restorable).
+## Development
 
-## Lifecycle Hooks
+```bash
+git clone https://github.com/maindexapp/hermes-plugin.git
+cd hermes-plugin
+pip install -e ".[test]"
+pytest tests/ -v
+```
 
-The plugin integrates with Hermes's memory lifecycle:
+For local testing against a Hermes checkout, symlink into your profile plugins dir:
 
-- **Prefetch**: Before each turn, searches Maindex for memories relevant to the user's message and injects them as context.
-- **Sync**: After each turn, stores conversation content as a note tagged `source:hermes`.
-- **Memory Mirror**: When the built-in memory system writes to MEMORY.md or USER.md, the content is mirrored to Maindex as a fact.
-- **Pre-Compress**: Before context compression discards old messages, a summary snapshot is stored in Maindex.
+```bash
+ln -s "$(pwd)" ~/.hermes/plugins/maindex
+```
 
-## Expert API
+## License
 
-This plugin connects to the [Maindex Expert API](https://expert.maindex.io) — the full-fidelity knowledge graph backend. The Expert API provides:
-
-- 14 MCP tools (this plugin exposes the 5 most essential through Hermes's tool interface)
-- Structured memories with headline, body, kind, canon status, confidence, and verification status
-- Typed associations between memories (supports, contradicts, depends_on, expands, etc.)
-- Collections for project-level organization
-- Full revision history on every memory
-- Multi-tier search: exact match, relaxed OR, fuzzy trigram, semantic, and hybrid
-
-The complete Expert API documentation is available at [expert.maindex.io/docs](https://expert.maindex.io/docs).
-
-## Links
-
-- [Maindex](https://maindex.io) — Website
-- [Expert API Docs](https://expert.maindex.io/docs) — Full OpenAPI documentation
-- [Setup Guide](https://maindex.io/help) — Step-by-step setup for all platforms
-- [Dashboard](https://maindex.io/dashboard) — Manage API keys and view usage
+MIT — see [LICENSE](LICENSE).
