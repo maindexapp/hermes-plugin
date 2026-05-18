@@ -100,7 +100,9 @@ sys.modules["hermes_constants"] = _hc
 
 # ── Load the plugin module under a clean name ────────────────────────────
 
-_plugin_path = str(Path(__file__).resolve().parent.parent / "__init__.py")
+_plugin_path = str(
+    Path(__file__).resolve().parent.parent / "maindex_hermes_plugin" / "__init__.py"
+)
 _spec = importlib.util.spec_from_file_location("maindex_plugin", _plugin_path)
 _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)
