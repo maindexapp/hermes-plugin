@@ -73,7 +73,12 @@ class TestLoadConfig:
         monkeypatch.setenv("MAINDEX_TOKEN", "env-tok")
         monkeypatch.setenv("MAINDEX_COLLECTION", "env-col")
         cfg = _load_config()
-        assert cfg == {"api_key": "env-key", "token": "env-tok", "collection": "env-col"}
+        assert cfg == {
+            "api_key": "env-key",
+            "token": "env-tok",
+            "collection": "env-col",
+            "sync_turns": False,
+        }
 
     def test_file_values_override_env(self, monkeypatch, tmp_path):
         monkeypatch.setattr(
@@ -548,8 +553,16 @@ class TestToolForget:
 
 class TestSyncTurn:
 
+    def test_disabled_by_default(self, provider):
+        p, mock = provider
+        p.sync_turn("A long enough user message here!", "response text")
+        if p._sync_thread:
+            p._sync_thread.join(timeout=1.0)
+        mock.keep.assert_not_called()
+
     def test_skips_short_user_content(self, provider):
         p, mock = provider
+        p._sync_turns = True
         p.sync_turn("hi", "hello")
         if p._sync_thread:
             p._sync_thread.join(timeout=1.0)
@@ -557,6 +570,7 @@ class TestSyncTurn:
 
     def test_skips_when_breaker_open(self, provider):
         p, mock = provider
+        p._sync_turns = True
         for _ in range(5):
             p._record_failure()
         p.sync_turn("A" * 50, "response text")
@@ -571,6 +585,7 @@ class TestSyncTurn:
 
     def test_stores_turn_as_note(self, provider):
         p, mock = provider
+        p._sync_turns = True
         done, side_effect = _event_side_effect({"id": "x"})
         mock.keep.side_effect = side_effect
         p.sync_turn(
@@ -586,6 +601,7 @@ class TestSyncTurn:
 
     def test_appends_ellipsis_to_long_headline(self, provider):
         p, mock = provider
+        p._sync_turns = True
         done, side_effect = _event_side_effect({"id": "x"})
         mock.keep.side_effect = side_effect
         p.sync_turn("A" * 300, "response")
@@ -596,6 +612,7 @@ class TestSyncTurn:
 
     def test_includes_collection_when_configured(self, provider):
         p, mock = provider
+        p._sync_turns = True
         p._collection = "my-col"
         done, side_effect = _event_side_effect({"id": "x"})
         mock.keep.side_effect = side_effect

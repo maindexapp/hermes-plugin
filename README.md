@@ -10,7 +10,7 @@ Persistent, relational memory for [Hermes Agent](https://github.com/NousResearch
 | --- | --- |
 | **Memory Provider** | `MemoryProvider` implementation for the Maindex Expert REST API |
 | **5 Agent Tools** | `maindex_search`, `maindex_keep`, `maindex_recall`, `maindex_update`, `maindex_forget` |
-| **Lifecycle Hooks** | Prefetch, turn sync, memory mirroring, pre-compression snapshot |
+| **Lifecycle Hooks** | Prefetch, optional turn sync (off by default), memory mirroring, pre-compression snapshot |
 | **Skills** | `maindex-core` and `memory-organizer` (optional, copy to `~/.hermes/skills/`) |
 
 ## Prerequisites
@@ -74,6 +74,11 @@ cp -r ~/.hermes/plugins/maindex/skills/* ~/.hermes/skills/
 | `MAINDEX_COLLECTION` | Default collection slug for scoping memories | No |
 
 Config file: `$HERMES_HOME/maindex.json` (written by `hermes memory setup` or `save_config`).
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `collection` | — | Default collection slug |
+| `sync_turns` | `false` | When `true`, log each conversation turn automatically. Leave off and use `maindex_keep` for intentional memories. |
 
 ## Tools
 

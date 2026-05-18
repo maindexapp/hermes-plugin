@@ -51,6 +51,14 @@ def _mock_response(data):
     return r
 
 
+def _envelope(data, **meta):
+    """Expert API list/single response shape."""
+    body: dict = {"ok": True, "data": data}
+    if meta:
+        body["meta"] = meta
+    return body
+
+
 @pytest.fixture
 def client():
     """MaindexClient with a mocked HTTP transport (no real connections)."""
@@ -64,8 +72,16 @@ def client():
 
 class TestSearch:
 
+    def test_unwraps_envelope_data_array(self, client):
+        client._client.get.return_value = _mock_response(
+            _envelope([{"shortId": "mem-1a", "headline": "dogs"}]),
+        )
+        result = client.search("dogs")
+        assert len(result["items"]) == 1
+        assert result["items"][0]["headline"] == "dogs"
+
     def test_builds_params_with_defaults(self, client):
-        client._client.get.return_value = _mock_response({"items": []})
+        client._client.get.return_value = _mock_response(_envelope([]))
         client.search("hello world", limit=3)
         client._client.get.assert_called_once_with(
             "/v1/search",
@@ -73,20 +89,20 @@ class TestSearch:
         )
 
     def test_forwards_keyword_filters(self, client):
-        client._client.get.return_value = _mock_response({"items": []})
+        client._client.get.return_value = _mock_response(_envelope([]))
         client.search("q", limit=5, tags=["a"], kind="fact")
         _, kwargs = client._client.get.call_args
         assert kwargs["params"]["tags"] == ["a"]
         assert kwargs["params"]["kind"] == "fact"
 
     def test_truncates_query_at_1000_chars(self, client):
-        client._client.get.return_value = _mock_response({"items": []})
+        client._client.get.return_value = _mock_response(_envelope([]))
         client.search("x" * 2000)
         _, kwargs = client._client.get.call_args
         assert len(kwargs["params"]["q"]) == 1000
 
     def test_excludes_none_filters(self, client):
-        client._client.get.return_value = _mock_response({"items": []})
+        client._client.get.return_value = _mock_response(_envelope([]))
         client.search("q", limit=5, kind=None)
         _, kwargs = client._client.get.call_args
         assert "kind" not in kwargs["params"]
@@ -107,14 +123,18 @@ class TestSearch:
 class TestKeep:
 
     def test_minimal_payload(self, client):
-        client._client.post.return_value = _mock_response({"id": "1"})
+        client._client.post.return_value = _mock_response(
+            _envelope({"id": "1", "shortId": "mem-1"}),
+        )
         client.keep("My headline")
         _, kwargs = client._client.post.call_args
         payload = kwargs["json"]
         assert payload == {"headline": "My headline", "body": "", "kind": "note"}
 
     def test_full_payload_with_extras(self, client):
-        client._client.post.return_value = _mock_response({"id": "1"})
+        client._client.post.return_value = _mock_response(
+            _envelope({"id": "1", "shortId": "mem-1"}),
+        )
         client.keep(
             "HL", body="B", tags=["t1"], kind="fact",
             collections=["col1"], source={"origin": "test"},
@@ -127,7 +147,9 @@ class TestKeep:
         assert payload["source"] == {"origin": "test"}
 
     def test_sends_to_memories_endpoint(self, client):
-        client._client.post.return_value = _mock_response({"id": "1"})
+        client._client.post.return_value = _mock_response(
+            _envelope({"id": "1", "shortId": "mem-1"}),
+        )
         client.keep("H")
         args, _ = client._client.post.call_args
         assert args[0] == "/v1/memories"
@@ -139,19 +161,23 @@ class TestKeep:
 class TestRecall:
 
     def test_include_links_converted_to_lowercase_string(self, client):
-        client._client.get.return_value = _mock_response({"id": "abc"})
+        client._client.get.return_value = _mock_response(
+            _envelope({"id": "abc", "shortId": "mem-1"}),
+        )
         client.recall("abc", include_links=False)
         _, kwargs = client._client.get.call_args
         assert kwargs["params"]["include_links"] == "false"
 
     def test_default_include_links_is_true(self, client):
-        client._client.get.return_value = _mock_response({"id": "abc"})
+        client._client.get.return_value = _mock_response(
+            _envelope({"id": "abc", "shortId": "mem-1"}),
+        )
         client.recall("abc")
         _, kwargs = client._client.get.call_args
         assert kwargs["params"]["include_links"] == "true"
 
     def test_calls_correct_endpoint(self, client):
-        client._client.get.return_value = _mock_response({})
+        client._client.get.return_value = _mock_response(_envelope({}))
         client.recall("mem-1a")
         args, _ = client._client.get.call_args
         assert args[0] == "/v1/memories/mem-1a"
@@ -163,7 +189,7 @@ class TestRecall:
 class TestUpdate:
 
     def test_forwards_all_kwargs(self, client):
-        client._client.post.return_value = _mock_response({})
+        client._client.post.return_value = _mock_response(_envelope({}))
         client.update(
             "abc", "body_replace",
             headline="H", body="B", tags=["t"],
@@ -176,13 +202,13 @@ class TestUpdate:
         assert payload["canon_status"] == "accepted"
 
     def test_excludes_none_kwargs(self, client):
-        client._client.post.return_value = _mock_response({})
+        client._client.post.return_value = _mock_response(_envelope({}))
         client.update("abc", "revision_only", headline=None)
         _, kwargs = client._client.post.call_args
         assert "headline" not in kwargs["json"]
 
     def test_calls_correct_endpoint(self, client):
-        client._client.post.return_value = _mock_response({})
+        client._client.post.return_value = _mock_response(_envelope({}))
         client.update("mem-1a", "revision_only")
         args, _ = client._client.post.call_args
         assert args[0] == "/v1/memories/mem-1a/update"
@@ -194,7 +220,9 @@ class TestUpdate:
 class TestForget:
 
     def test_sends_delete_to_correct_endpoint(self, client):
-        client._client.delete.return_value = _mock_response({"ok": True})
+        client._client.delete.return_value = _mock_response(
+            _envelope({"deleted": True}),
+        )
         client.forget("mem-1a")
         client._client.delete.assert_called_once_with("/v1/memories/mem-1a")
 
@@ -205,19 +233,19 @@ class TestForget:
 class TestListMemories:
 
     def test_forwards_filters_as_params(self, client):
-        client._client.get.return_value = _mock_response({"items": []})
+        client._client.get.return_value = _mock_response(_envelope([]))
         client.list_memories(kind="note", limit=10)
         _, kwargs = client._client.get.call_args
         assert kwargs["params"] == {"kind": "note", "limit": 10}
 
     def test_excludes_none_values(self, client):
-        client._client.get.return_value = _mock_response({"items": []})
+        client._client.get.return_value = _mock_response(_envelope([]))
         client.list_memories(kind="note", tags=None)
         _, kwargs = client._client.get.call_args
         assert "tags" not in kwargs["params"]
 
     def test_calls_memories_endpoint(self, client):
-        client._client.get.return_value = _mock_response({"items": []})
+        client._client.get.return_value = _mock_response(_envelope([]))
         client.list_memories()
         args, _ = client._client.get.call_args
         assert args[0] == "/v1/memories"
