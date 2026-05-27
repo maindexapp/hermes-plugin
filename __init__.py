@@ -318,13 +318,14 @@ def run_setup_wizard(hermes_home: str, config: Optional[dict] = None) -> bool:
         return False
 
     current_collection = cfg.get("collection", "")
-    collection = _prompt(
-        "Default collection slug (optional)",
-        default=current_collection or None,
-    )
+    if current_collection:
+        collection_label = f"Default collection (current: {current_collection}, blank to clear)"
+    else:
+        collection_label = "Default collection slug (optional, blank to skip)"
+    collection = _prompt(collection_label)
 
     provider_values: Dict[str, str | bool] = {}
-    if collection:
+    if collection or current_collection:
         provider_values["collection"] = collection
         os.environ["MAINDEX_COLLECTION"] = collection
 
@@ -386,7 +387,7 @@ SEARCH_SCHEMA = {
             "kind": {"type": "string",
                      "description": "Filter by memory kind (note, fact, idea, decision, constraint, question, summary, artifact, task_context)."},
             "collection": {"type": "string",
-                          "description": "Filter by collection slug or ID."},
+                          "description": "Filter by collection slug or ID. Pass '*' to search all collections (ignores default)."},
         },
         "required": ["query"],
     },
@@ -411,7 +412,7 @@ KEEP_SCHEMA = {
             "kind": {"type": "string",
                      "description": "Memory type: note, fact, idea, decision, constraint, question, summary, artifact, task_context."},
             "collections": {"type": "array", "items": {"type": "string"},
-                           "description": "Collection slugs to add this memory to."},
+                           "description": "Collection slugs to add this memory to. Pass empty array [] to skip default collection."},
         },
         "required": ["headline"],
     },
@@ -620,7 +621,10 @@ class MaindexMemoryProvider(MemoryProvider):
     def system_prompt_block(self) -> str:
         parts = ["# Maindex Memory", "Active. Structured knowledge graph."]
         if self._collection:
-            parts.append(f"Default collection: {self._collection}.")
+            parts.append(
+                f"Default collection: {self._collection} (override with collection param, "
+                "or omit to search all collections)."
+            )
         parts.append(
             "Use maindex_search to find memories, maindex_keep to store facts, "
             "maindex_recall for a specific memory, maindex_update to revise, "
@@ -834,10 +838,16 @@ class MaindexMemoryProvider(MemoryProvider):
             return tool_error("query is required")
         try:
             filters: Dict[str, Any] = {}
-            for key in ("tags", "kind", "collection"):
+            for key in ("tags", "kind"):
                 if args.get(key):
                     filters[key] = args[key]
-            if self._collection and "collection" not in filters:
+            # Handle collection: "*" means all, explicit value overrides default
+            coll_arg = args.get("collection", "")
+            if coll_arg == "*":
+                pass  # No collection filter — search all
+            elif coll_arg:
+                filters["collection"] = coll_arg
+            elif self._collection:
                 filters["collection"] = self._collection
             data = self._client.search(
                 query, limit=min(int(args.get("limit", 10)), 50),
@@ -876,8 +886,11 @@ class MaindexMemoryProvider(MemoryProvider):
                 keep_kwargs["tags"] = args["tags"]
             if args.get("kind"):
                 keep_kwargs["kind"] = args["kind"]
-            if args.get("collections"):
-                keep_kwargs["collections"] = args["collections"]
+            # Handle collections: explicit [] means no collection, explicit list overrides default
+            if "collections" in args:
+                if args["collections"]:  # Non-empty list provided
+                    keep_kwargs["collections"] = args["collections"]
+                # else: empty list means explicitly no collections
             elif self._collection:
                 keep_kwargs["collections"] = [self._collection]
             keep_kwargs["conversations"] = [{
