@@ -49,13 +49,42 @@ hermes plugins install maindexapp/hermes-plugin
 ## Activate
 
 ```bash
-# Interactive setup (prompts for API key, runs connection check):
+# Recommended: full setup wizard (credentials, activation, connection test)
+hermes maindex setup
+
+# Or via the generic memory provider picker:
 hermes memory setup
 
-# Or set directly:
+# Or set manually:
 hermes config set memory.provider maindex
 echo "MAINDEX_API_KEY=your-key" >> ~/.hermes/.env
 ```
+
+## Verify
+
+```bash
+hermes maindex status    # config + connection check
+hermes maindex test      # REST API auth test (uses X-API-Key)
+hermes memory status     # generic memory provider status
+```
+
+When Maindex is the active memory provider, `hermes maindex` commands are
+available. Run `hermes --help` to confirm.
+
+### MCP (optional, separate from memory provider)
+
+If you also connect to Maindex via MCP, use the `X-API-Key` header — not
+`Authorization: Bearer`:
+
+```yaml
+mcp_servers:
+  maindex:
+    url: "https://expert.maindex.io/mcp"
+    headers:
+      X-API-Key: "${MAINDEX_API_KEY}"
+```
+
+Test with: `hermes mcp test maindex`
 
 ## Skills (optional)
 
