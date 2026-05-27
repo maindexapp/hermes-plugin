@@ -1,34 +1,45 @@
 """CLI commands for Maindex memory provider management.
 
 Handles: hermes maindex setup | status | test
+
+Note: This module is loaded separately by Hermes during argparse setup.
+We use late imports to access the main plugin module since it may not
+be in sys.modules yet when this file is first imported.
 """
 
 from __future__ import annotations
 
-import os
 import sys
-from pathlib import Path
 
-from hermes_constants import get_hermes_home
 
-from maindex_hermes_plugin import MaindexMemoryProvider, _load_config
-from maindex_hermes_plugin.setup import (
-    activate_memory_provider,
-    mask_secret,
-    run_setup_wizard,
-    test_connection,
-)
+def _get_main_module():
+    """Get the main plugin module (handles bundled, user-installed, and pip)."""
+    for mod_name in (
+        "_hermes_user_memory.maindex",  # Hermes user-installed
+        "plugins.memory.maindex",        # Hermes bundled
+        "maindex_hermes_plugin",         # pip install
+        "maindex_plugin",                # test harness
+    ):
+        if mod_name in sys.modules:
+            return sys.modules[mod_name]
+    raise ImportError("Maindex plugin not loaded. Run: hermes memory setup")
 
 
 def cmd_setup(args) -> None:
     """Run the Maindex setup wizard."""
-    run_setup_wizard(str(get_hermes_home()))
+    from hermes_constants import get_hermes_home
+
+    mod = _get_main_module()
+    mod.run_setup_wizard(str(get_hermes_home()))
 
 
 def cmd_status(args) -> None:
     """Show Maindex config and connection status."""
+    from hermes_constants import get_hermes_home
+
+    mod = _get_main_module()
     home = get_hermes_home()
-    cfg = _load_config()
+    cfg = mod._load_config()
     api_key = cfg.get("api_key", "")
     token = cfg.get("token", "")
 
@@ -45,8 +56,8 @@ def cmd_status(args) -> None:
     print("\nMaindex status\n" + "─" * 40)
     print(f"  Profile:         {home}")
     print(f"  Memory provider: {active_provider or '(not active)'}")
-    print(f"  API key:         {mask_secret(api_key)}")
-    print(f"  OAuth token:     {mask_secret(token)}")
+    print(f"  API key:         {mod.mask_secret(api_key)}")
+    print(f"  OAuth token:     {mod.mask_secret(token)}")
     if cfg.get("collection"):
         print(f"  Collection:      {cfg['collection']}")
     print(f"  Sync turns:      {bool(cfg.get('sync_turns', False))}")
@@ -55,7 +66,7 @@ def cmd_status(args) -> None:
     if config_path.exists():
         print(f"  Config file:     {config_path}")
 
-    provider = MaindexMemoryProvider()
+    provider = mod.MaindexMemoryProvider()
     if not provider.is_available():
         print("\n  Status:          not available (missing credentials)")
         print("  Run: hermes maindex setup\n")
@@ -67,7 +78,7 @@ def cmd_status(args) -> None:
         return
 
     print("\n  Connection... ", end="", flush=True)
-    ok, message = test_connection(api_key=api_key, bearer_token=token)
+    ok, message = mod.test_connection(api_key=api_key, bearer_token=token)
     if ok:
         print("OK")
         print("\n  Tools available in chat: maindex_search, maindex_keep,")
@@ -79,7 +90,8 @@ def cmd_status(args) -> None:
 
 def cmd_test(args) -> None:
     """Test Maindex API credentials."""
-    cfg = _load_config()
+    mod = _get_main_module()
+    cfg = mod._load_config()
     api_key = cfg.get("api_key", "")
     token = cfg.get("token", "")
 
@@ -90,10 +102,10 @@ def cmd_test(args) -> None:
 
     auth_label = "X-API-Key" if api_key else "Authorization: Bearer (OAuth)"
     print("\n  Testing Maindex Expert API...")
-    print(f"  Endpoint: https://expert.maindex.io/v1/memories")
-    print(f"  Auth:     {auth_label} {mask_secret(api_key or token)}")
+    print("  Endpoint: https://expert.maindex.io/v1/memories")
+    print(f"  Auth:     {auth_label} {mod.mask_secret(api_key or token)}")
 
-    ok, message = test_connection(api_key=api_key, bearer_token=token)
+    ok, message = mod.test_connection(api_key=api_key, bearer_token=token)
     if ok:
         print("  Result:   OK\n")
     else:

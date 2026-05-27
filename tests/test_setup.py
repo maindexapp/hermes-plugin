@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from maindex_hermes_plugin.setup import (
+from maindex_hermes_plugin import (
     activate_memory_provider,
     mask_secret,
     run_setup_wizard,
@@ -81,17 +81,19 @@ class TestConnection:
         assert "No credentials" in message
 
     def test_success(self, monkeypatch):
+        import maindex_hermes_plugin
         mock_client = MagicMock()
         mock_client.list_memories.return_value = {"items": []}
-        with patch("maindex_hermes_plugin.setup.MaindexClient", return_value=mock_client):
+        with patch.object(maindex_hermes_plugin, "MaindexClient", return_value=mock_client):
             ok, message = verify_connection(api_key="test-key")
         assert ok is True
         mock_client.close.assert_called_once()
 
     def test_failure(self, monkeypatch):
+        import maindex_hermes_plugin
         mock_client = MagicMock()
         mock_client.list_memories.side_effect = RuntimeError("401 Unauthorized")
-        with patch("maindex_hermes_plugin.setup.MaindexClient", return_value=mock_client):
+        with patch.object(maindex_hermes_plugin, "MaindexClient", return_value=mock_client):
             ok, message = verify_connection(api_key="bad-key")
         assert ok is False
         assert "401" in message
@@ -107,8 +109,10 @@ class TestSetupWizard:
         monkeypatch.delenv("MAINDEX_TOKEN", raising=False)
 
         inputs = iter(["new-api-key", ""])
+        import maindex_hermes_plugin
         monkeypatch.setattr(
-            "maindex_hermes_plugin.setup._prompt",
+            maindex_hermes_plugin,
+            "_prompt",
             lambda *args, **kwargs: next(inputs),
         )
 
@@ -119,8 +123,9 @@ class TestSetupWizard:
 
         _stub_hermes_cli_config(save_side_effect=fake_save)
 
-        with patch(
-            "maindex_hermes_plugin.setup.test_connection",
+        with patch.object(
+            maindex_hermes_plugin,
+            "test_connection",
             return_value=(True, "Connected successfully"),
         ):
             assert run_setup_wizard(str(tmp_path)) is True
@@ -136,8 +141,10 @@ class TestSetupWizard:
         monkeypatch.delenv("MAINDEX_API_KEY", raising=False)
         monkeypatch.delenv("MAINDEX_TOKEN", raising=False)
 
+        import maindex_hermes_plugin
         monkeypatch.setattr(
-            "maindex_hermes_plugin.setup._prompt",
+            maindex_hermes_plugin,
+            "_prompt",
             lambda *args, **kwargs: "",
         )
 
@@ -168,9 +175,10 @@ class TestCli:
         spec.loader.exec_module(cli_mod)
         self.cli = cli_mod
 
-    def test_status_reports_connected(self, capsys):
+    def test_status_reports_connected(self, capsys, monkeypatch):
+        import maindex_hermes_plugin
         with patch.object(
-            self.cli,
+            maindex_hermes_plugin,
             "test_connection",
             return_value=(True, "Connected successfully"),
         ):
@@ -179,9 +187,10 @@ class TestCli:
         assert "Memory provider: maindex" in out
         assert "Connection... OK" in out
 
-    def test_test_exits_nonzero_on_failure(self):
+    def test_test_exits_nonzero_on_failure(self, monkeypatch):
+        import maindex_hermes_plugin
         with patch.object(
-            self.cli,
+            maindex_hermes_plugin,
             "test_connection",
             return_value=(False, "401 Unauthorized"),
         ):
