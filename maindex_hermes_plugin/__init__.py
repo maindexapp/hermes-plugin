@@ -366,25 +366,10 @@ class MaindexMemoryProvider(MemoryProvider):
         config_path.write_text(json.dumps(existing, indent=2))
 
     def post_setup(self, hermes_home: str, config: dict) -> None:
-        """Verify API credentials after ``hermes memory setup`` selects Maindex."""
-        cfg = _load_config()
-        api_key = cfg.get("api_key", "")
-        token = cfg.get("token", "")
-        if not api_key and not token:
-            print(
-                "Maindex: no credentials found. Set MAINDEX_API_KEY or "
-                "MAINDEX_TOKEN in your profile .env file."
-            )
-            return
+        """Run setup wizard after ``hermes memory setup`` selects Maindex."""
+        from maindex_hermes_plugin.setup import run_setup_wizard
 
-        client = MaindexClient(api_key=api_key, bearer_token=token)
-        try:
-            client.list_memories(limit=1)
-            print("Maindex: connected successfully.")
-        except Exception as exc:
-            print(f"Maindex: connection check failed: {exc}")
-        finally:
-            client.close()
+        run_setup_wizard(hermes_home, config)
 
     def _is_breaker_open(self) -> bool:
         if self._consecutive_failures < _BREAKER_THRESHOLD:
