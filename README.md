@@ -9,7 +9,8 @@ Persistent, relational memory for [Hermes Agent](https://github.com/NousResearch
 | Component | Description |
 | --- | --- |
 | **Memory Provider** | `MemoryProvider` implementation for the Maindex Expert REST API |
-| **5 Agent Tools** | `maindex_search`, `maindex_keep`, `maindex_recall`, `maindex_update`, `maindex_forget` |
+| **11 Agent Tools** | Core five plus `maindex_list`, `maindex_restore`, `maindex_associate`, and collection tools |
+| **Agent docs** | [docs/AGENT_MEMORY.md](docs/AGENT_MEMORY.md), [docs/PERSONA_BOOTSTRAP.md](docs/PERSONA_BOOTSTRAP.md) |
 | **Lifecycle Hooks** | Prefetch, optional turn sync (off by default), memory mirroring, pre-compression snapshot |
 | **Skills** | `maindex-core` and `memory-organizer` (optional, copy to `~/.hermes/skills/`) |
 
@@ -86,6 +87,36 @@ mcp_servers:
 
 Test with: `hermes mcp test maindex`
 
+## After install — recommended setup
+
+### Hermes config (tool-first mode)
+
+```yaml
+# config.yaml — ~/.hermes/config.yaml or /opt/data/config.yaml
+memory:
+  provider: maindex
+memory_enabled: false   # use maindex_* tools intentionally; avoid duplicate Hermes auto-memory
+```
+
+Keep `sync_turns: false` in `maindex.json` (default). See [docs/AGENT_MEMORY.md](docs/AGENT_MEMORY.md) for why.
+
+### Bootstrap from Maindex (recommended)
+
+For continuity across sessions, add a bootstrap instruction to your agent's persona or system prompt. This ensures the agent loads its core identity from Maindex at the start of every conversation — even if the local cache is stale or the service has been reset.
+
+Recommended persona text:
+
+```
+On session start, load your identity record from Maindex via
+maindex_recall(memory_id='mem-YOUR_ID'). Keep a local copy with a timestamp
+in case of service interruption. Use that record as your anchor for
+identity, context tracking, and cross-session continuity.
+```
+
+Replace `mem-YOUR_ID` with your agent's own identity memory ID. The approach is framework-agnostic — works for Hermes Agent, Claude Code, OpenCode, or any LLM agent with access to the Maindex toolset.
+
+Ready-to-paste block: [docs/PERSONA_BOOTSTRAP.md](docs/PERSONA_BOOTSTRAP.md). Extended guide: [docs/AGENT_MEMORY.md](docs/AGENT_MEMORY.md).
+
 ## Skills (optional)
 
 Bundled skills are not loaded automatically. Copy them into your Hermes skills directory:
@@ -111,11 +142,22 @@ Config file: `$HERMES_HOME/maindex.json` (written by `hermes memory setup` or `s
 
 ## Tools
 
-- **`maindex_search`** — Full-text, fuzzy, semantic, and hybrid search. Filter by tags, kind, collection.
+**Core**
+
+- **`maindex_search`** — Full-text, fuzzy, semantic, and hybrid search.
+- **`maindex_list`** — Browse memories with filters (no search query).
 - **`maindex_keep`** — Store a memory with headline, body, tags, kind, collections.
 - **`maindex_recall`** — Retrieve a memory by ID (UUID or short ID like `mem-1a`).
-- **`maindex_update`** — Revise with full history (`body_append`, `body_replace`, `headline_replace`, etc.).
+- **`maindex_update`** — Revise with full history (`body_append`, `body_replace`, etc.).
 - **`maindex_forget`** — Soft-delete (restorable).
+- **`maindex_restore`** — Undo a soft-delete.
+
+**Graph and collections**
+
+- **`maindex_associate`** — Create or discover typed links between memories.
+- **`maindex_collection_list`** — List collections.
+- **`maindex_collection_create`** — Create a collection.
+- **`maindex_collection_members`** — Add or remove memories from a collection.
 
 ## Development
 

@@ -230,6 +230,81 @@ class TestForget:
 # ── list_memories ────────────────────────────────────────────────────────
 
 
+class TestRecallExtended:
+
+    def test_include_deleted_and_revisions_params(self, client):
+        client._client.get.return_value = _mock_response(_envelope({}))
+        client.recall("mem-1a", include_deleted=True, include_revisions=True)
+        _, kwargs = client._client.get.call_args
+        assert kwargs["params"]["include_deleted"] == "true"
+        assert kwargs["params"]["include_revisions"] == "true"
+
+
+class TestRestore:
+
+    def test_posts_to_restore_endpoint(self, client):
+        client._client.post.return_value = _mock_response(
+            _envelope({"id": "1", "shortId": "mem-1"}),
+        )
+        client.restore("mem-1a")
+        client._client.post.assert_called_once_with("/v1/memories/mem-1a/restore")
+
+
+class TestAssociations:
+
+    def test_create_associations(self, client):
+        client._client.post.return_value = _mock_response(_envelope([]))
+        targets = [{"memory_id": "mem-2", "relation_type": "supports"}]
+        client.create_associations("mem-1", targets)
+        _, kwargs = client._client.post.call_args
+        assert kwargs["json"]["targets"] == targets
+
+    def test_discover_associations(self, client):
+        client._client.get.return_value = _mock_response(
+            _envelope({"memories": [{"id": "x", "headline": "H"}]}),
+        )
+        client.discover_associations(memory_id="mem-1", limit=5)
+        _, kwargs = client._client.get.call_args
+        assert kwargs["params"]["memory_id"] == "mem-1"
+        assert kwargs["params"]["limit"] == 5
+
+
+class TestCollections:
+
+    def test_list_collections(self, client):
+        client._client.get.return_value = _mock_response(_envelope([]))
+        client.list_collections(parent_id="col-parent", limit=10, offset=5)
+        _, kwargs = client._client.get.call_args
+        assert kwargs["params"]["parent_id"] == "col-parent"
+        assert kwargs["params"]["limit"] == 10
+
+    def test_create_collection(self, client):
+        client._client.post.return_value = _mock_response(
+            _envelope({"id": "c1", "slug": "my-col"}),
+        )
+        client.create_collection("My Col", slug="my-col", description="desc")
+        _, kwargs = client._client.post.call_args
+        assert kwargs["json"]["name"] == "My Col"
+        assert kwargs["json"]["slug"] == "my-col"
+        assert "summary_headline" not in kwargs["json"]
+
+    def test_add_collection_members(self, client):
+        client._client.post.return_value = _mock_response(_envelope({"added": 2}))
+        client.add_collection_members("col-1", ["mem-1", "mem-2"])
+        _, kwargs = client._client.post.call_args
+        assert kwargs["json"]["memory_ids"] == ["mem-1", "mem-2"]
+
+    def test_remove_collection_members(self, client):
+        client._client.request.return_value = _mock_response(
+            _envelope({"removed": 1}),
+        )
+        client.remove_collection_members("col-1", ["mem-1"])
+        client._client.request.assert_called_once()
+        args, kwargs = client._client.request.call_args
+        assert args[0] == "DELETE"
+        assert kwargs["json"]["memory_ids"] == ["mem-1"]
+
+
 class TestListMemories:
 
     def test_forwards_filters_as_params(self, client):

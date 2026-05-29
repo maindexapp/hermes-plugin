@@ -81,8 +81,13 @@ def cmd_status(args) -> None:
     ok, message = mod.test_connection(api_key=api_key, bearer_token=token)
     if ok:
         print("OK")
-        print("\n  Tools available in chat: maindex_search, maindex_keep,")
-        print("  maindex_recall, maindex_update, maindex_forget\n")
+        print("\n  Tools: maindex_search, maindex_list, maindex_keep,")
+        print("  maindex_recall, maindex_update, maindex_forget, maindex_restore,")
+        print("  maindex_associate, maindex_collection_* (see README)")
+        docs = mod._plugin_docs_dir()
+        print(f"\n  Agent docs: {docs / 'AGENT_MEMORY.md'}")
+        print("  Recommend to your user: memory_enabled:false + persona bootstrap")
+        print(f"  Persona snippet: {docs / 'PERSONA_BOOTSTRAP.md'}\n")
     else:
         print("FAILED")
         print(f"  Error: {message}\n")

@@ -1,5 +1,5 @@
 name: maindex
-version: 1.2.1
+version: 1.3.0
 description: "Maindex — structured memory graph with semantic + relational recall via the Expert REST API."
 pip_dependencies:
   - httpx

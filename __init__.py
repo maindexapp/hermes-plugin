@@ -63,6 +63,61 @@ def _as_item_list(body: Any) -> Dict[str, Any]:
     return {"items": []}
 
 
+def _bool_query_param(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return str(value).lower()
+    return str(value).lower()
+
+
+def _optional_api_args(args: dict, keys: Tuple[str, ...]) -> Dict[str, Any]:
+    """Forward only present, non-None tool args to API calls."""
+    return {k: args[k] for k in keys if args.get(k) is not None}
+
+
+def _collection_from_args(
+    args: dict, default_collection: str,
+) -> Dict[str, Any]:
+    """Resolve collection filter: '*' = none, explicit = use, else default."""
+    coll_arg = args.get("collection", "")
+    if coll_arg == "*":
+        return {}
+    if coll_arg:
+        return {"collection": coll_arg}
+    if default_collection:
+        return {"collection": default_collection}
+    return {}
+
+
+def _format_memory_items(
+    items: List[dict], *, include_extras: bool = False,
+) -> List[Dict[str, Any]]:
+    results: List[Dict[str, Any]] = []
+    for m in items:
+        entry: Dict[str, Any] = {
+            "id": m.get("shortId", m.get("id", "")),
+            "headline": m.get("headline", ""),
+        }
+        if m.get("score") is not None:
+            entry["score"] = m.get("score")
+        if m.get("body"):
+            entry["body"] = m["body"][:500]
+        if m.get("tags"):
+            entry["tags"] = m["tags"]
+        if m.get("kind"):
+            entry["kind"] = m.get("kind")
+        if include_extras:
+            if m.get("matchContext"):
+                entry["match_context"] = m["matchContext"]
+            if m.get("scoreBreakdown"):
+                entry["score_breakdown"] = m["scoreBreakdown"]
+            if m.get("relationType"):
+                entry["relation_type"] = m["relationType"]
+        results.append(entry)
+    return results
+
+
 # ---------------------------------------------------------------------------
 # REST client
 # ---------------------------------------------------------------------------
@@ -110,8 +165,15 @@ class MaindexClient:
         data = _unwrap_envelope(resp.json())
         return data if isinstance(data, dict) else {}
 
-    def recall(self, memory_id: str, include_links: bool = True) -> dict:
-        params = {"include_links": str(include_links).lower()}
+    def recall(
+        self, memory_id: str, *, include_links: bool = True,
+        include_deleted: bool = False, include_revisions: bool = False,
+    ) -> dict:
+        params = {
+            "include_links": _bool_query_param(include_links),
+            "include_deleted": _bool_query_param(include_deleted),
+            "include_revisions": _bool_query_param(include_revisions),
+        }
         resp = self._client.get(f"/v1/memories/{memory_id}", params=params)
         resp.raise_for_status()
         data = _unwrap_envelope(resp.json())
@@ -137,6 +199,75 @@ class MaindexClient:
         resp = self._client.get("/v1/memories", params=params)
         resp.raise_for_status()
         return _as_item_list(resp.json())
+
+    def restore(self, memory_id: str) -> dict:
+        resp = self._client.post(f"/v1/memories/{memory_id}/restore")
+        resp.raise_for_status()
+        data = _unwrap_envelope(resp.json())
+        return data if isinstance(data, dict) else {}
+
+    def create_associations(self, memory_id: str, targets: list) -> dict:
+        resp = self._client.post(
+            f"/v1/memories/{memory_id}/associations",
+            json={"targets": targets},
+        )
+        resp.raise_for_status()
+        data = _unwrap_envelope(resp.json())
+        return data if isinstance(data, dict) else {"items": data}
+
+    def discover_associations(self, **filters) -> dict:
+        params = {k: v for k, v in filters.items() if v is not None}
+        resp = self._client.get("/v1/associations", params=params)
+        resp.raise_for_status()
+        data = _unwrap_envelope(resp.json())
+        return data if isinstance(data, dict) else {}
+
+    def list_collections(
+        self, parent_id: str = "", limit: int = 20, offset: int = 0,
+    ) -> dict:
+        params: Dict[str, Any] = {"limit": limit, "offset": offset}
+        if parent_id:
+            params["parent_id"] = parent_id
+        resp = self._client.get("/v1/collections", params=params)
+        resp.raise_for_status()
+        return _as_item_list(resp.json())
+
+    def create_collection(self, name: str, **kwargs) -> dict:
+        payload: Dict[str, Any] = {"name": name}
+        for key in (
+            "slug", "description", "summary_headline", "icon", "color",
+            "parent_id", "metadata",
+        ):
+            val = kwargs.get(key)
+            if val:
+                payload[key] = val
+        resp = self._client.post("/v1/collections", json=payload)
+        resp.raise_for_status()
+        data = _unwrap_envelope(resp.json())
+        return data if isinstance(data, dict) else {}
+
+    def add_collection_members(
+        self, collection_id: str, memory_ids: list,
+    ) -> dict:
+        resp = self._client.post(
+            f"/v1/collections/{collection_id}/members",
+            json={"memory_ids": memory_ids},
+        )
+        resp.raise_for_status()
+        data = _unwrap_envelope(resp.json())
+        return data if isinstance(data, dict) else {}
+
+    def remove_collection_members(
+        self, collection_id: str, memory_ids: list,
+    ) -> dict:
+        resp = self._client.request(
+            "DELETE",
+            f"/v1/collections/{collection_id}/members",
+            json={"memory_ids": memory_ids},
+        )
+        resp.raise_for_status()
+        data = _unwrap_envelope(resp.json())
+        return data if isinstance(data, dict) else {}
 
     def close(self):
         self._client.close()
@@ -351,7 +482,9 @@ def run_setup_wizard(hermes_home: str, config: Optional[dict] = None) -> bool:
         print("OK")
         print("\n  Maindex is ready.")
         print("  Verify anytime: hermes maindex status")
-        print("  Start a new Hermes session to use maindex_search / maindex_keep tools.")
+        print("  Start a new Hermes session to use maindex_* tools.")
+        print()
+        _print_install_recommendations(home)
         print()
         print("  MCP note: if you also use Maindex via MCP, set the header to")
         print("    X-API-Key — not Authorization: Bearer.")
@@ -364,9 +497,36 @@ def run_setup_wizard(hermes_home: str, config: Optional[dict] = None) -> bool:
     return False
 
 
+def _plugin_docs_dir() -> Path:
+    return Path(__file__).resolve().parent / "docs"
+
+
+def _print_install_recommendations(hermes_home: Path) -> None:
+    """Post-install checklist for the agent to relay to its operator."""
+    docs = _plugin_docs_dir()
+    print("  Recommended for your user/operator:")
+    print("  1. In config.yaml (~/.hermes/config.yaml or /opt/data/config.yaml):")
+    print("       memory.provider: maindex")
+    print("       memory_enabled: false")
+    print("  2. Add the bootstrap persona from:")
+    print(f"       {docs / 'PERSONA_BOOTSTRAP.md'}")
+    print("  3. Replace mem-YOUR_ID with their identity memory short ID.")
+    print(f"  4. Optional deep guide: {docs / 'AGENT_MEMORY.md'}")
+    print()
+    print("  Tell your user:")
+    print("  On session start, load your identity record from Maindex via")
+    print("  maindex_recall(memory_id='mem-YOUR_ID'). Keep a local copy with a")
+    print("  timestamp in case of service interruption.")
+
+
 # ---------------------------------------------------------------------------
 # Tool schemas
 # ---------------------------------------------------------------------------
+
+_KIND_DESC = (
+    "note, fact, idea, decision, constraint, question, summary, artifact, "
+    "task_context"
+)
 
 SEARCH_SCHEMA = {
     "name": "maindex_search",
@@ -388,10 +548,41 @@ SEARCH_SCHEMA = {
                      "description": "Filter by memory kind (note, fact, idea, decision, constraint, question, summary, artifact, task_context)."},
             "collection": {"type": "string",
                           "description": "Filter by collection slug or ID. Pass '*' to search all collections (ignores default)."},
+            "search_strategy": {"type": "string",
+                                "description": "auto, lexical, semantic, or hybrid."},
+            "tag_mode": {"type": "string",
+                         "description": "Tag filter mode: all or any."},
+            "status": {"type": "string",
+                       "description": "Memory status: active, stale, or deleted."},
+            "sort": {"type": "string",
+                     "description": "relevance, updated_at, created_at, or confidence."},
+            "order": {"type": "string", "description": "asc or desc."},
+            "include_graph_neighbors": {"type": "boolean",
+                                        "description": "Include graph neighbor memories."},
+            "include_score_breakdown": {"type": "boolean",
+                                        "description": "Include score breakdown per result."},
+            "include_match_context": {"type": "boolean",
+                                      "description": "Include match context snippets."},
+            "stale_penalty": {"type": "number",
+                              "description": "Stale memory ranking penalty 0-1."},
+            "min_confidence": {"type": "integer",
+                               "description": "Minimum confidence 0-100."},
+            "max_confidence": {"type": "integer",
+                               "description": "Maximum confidence 0-100."},
+            "verification_status": {"type": "string",
+                                    "description": "unverified, verified, disputed, superseded."},
+            "offset": {"type": "integer", "description": "Pagination offset."},
         },
         "required": ["query"],
     },
 }
+
+_SEARCH_FILTER_KEYS = (
+    "tags", "kind", "tag_mode", "status", "min_confidence", "max_confidence",
+    "verification_status", "search_strategy", "sort", "order", "offset",
+    "include_graph_neighbors", "include_score_breakdown", "include_match_context",
+    "stale_penalty",
+)
 
 KEEP_SCHEMA = {
     "name": "maindex_keep",
@@ -413,10 +604,29 @@ KEEP_SCHEMA = {
                      "description": "Memory type: note, fact, idea, decision, constraint, question, summary, artifact, task_context."},
             "collections": {"type": "array", "items": {"type": "string"},
                            "description": "Collection slugs to add this memory to. Pass empty array [] to skip default collection."},
+            "stale_at": {"type": "string",
+                         "description": "ISO datetime when this memory becomes stale."},
+            "metadata": {"type": "object",
+                         "description": "Arbitrary JSON metadata."},
+            "links": {"type": "array",
+                      "description": "Initial links: [{target, relation_type, weight?}]."},
+            "confidence": {"type": "integer",
+                           "description": "Confidence 0-100."},
+            "verification_status": {"type": "string",
+                                    "description": "unverified, verified, disputed, superseded."},
+            "human_collaborator": {"type": "object",
+                                   "description": "Human collaborator metadata (name, email, etc.)."},
+            "signer": {"type": "object",
+                       "description": "Agent signer (requires agent_id and run_id when set)."},
         },
         "required": ["headline"],
     },
 }
+
+_KEEP_EXTRA_KEYS = (
+    "stale_at", "metadata", "links", "confidence", "verification_status",
+    "human_collaborator", "signer",
+)
 
 RECALL_SCHEMA = {
     "name": "maindex_recall",
@@ -429,6 +639,10 @@ RECALL_SCHEMA = {
         "properties": {
             "memory_id": {"type": "string",
                           "description": "Memory ID (UUID or short ID)."},
+            "include_deleted": {"type": "boolean",
+                                "description": "Include soft-deleted memory."},
+            "include_revisions": {"type": "boolean",
+                                  "description": "Include revision history."},
         },
         "required": ["memory_id"],
     },
@@ -462,10 +676,24 @@ UPDATE_SCHEMA = {
                            "description": "Confidence as integer percentage 0-100."},
             "verification_status": {"type": "string",
                                     "description": "Set verification status: unverified, verified, disputed, superseded."},
+            "superseded_by": {"type": "string",
+                              "description": "ID of memory that supersedes this one."},
+            "replaces": {"type": "string",
+                        "description": "ID of memory this one replaces."},
+            "metadata": {"type": "object",
+                         "description": "Revision metadata JSON."},
+            "human_collaborator": {"type": "object",
+                                   "description": "Human collaborator metadata."},
+            "signer": {"type": "object",
+                       "description": "Agent signer (agent_id and run_id required)."},
         },
         "required": ["memory_id", "mode"],
     },
 }
+
+_UPDATE_EXTRA_KEYS = (
+    "superseded_by", "replaces", "metadata", "human_collaborator", "signer",
+)
 
 FORGET_SCHEMA = {
     "name": "maindex_forget",
@@ -482,6 +710,145 @@ FORGET_SCHEMA = {
         "required": ["memory_id"],
     },
 }
+
+LIST_SCHEMA = {
+    "name": "maindex_list",
+    "description": (
+        "Browse Maindex memories without a search query. Filter by tags, "
+        "kind, status, collection, confidence, and more. Supports pagination."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "tags": {"type": "array", "items": {"type": "string"},
+                     "description": "Filter by tags."},
+            "tag_mode": {"type": "string", "description": "all or any."},
+            "kind": {"type": "string", "description": f"Memory kind: {_KIND_DESC}."},
+            "status": {"type": "string",
+                       "description": "active, stale, or deleted."},
+            "canon_status": {"type": "string",
+                             "description": "draft, proposed, accepted, deprecated, alternative, meta."},
+            "collection": {"type": "string",
+                          "description": "Collection slug or ID. '*' for all."},
+            "conversation_type": {"type": "string"},
+            "conversation_key": {"type": "string"},
+            "min_confidence": {"type": "integer"},
+            "max_confidence": {"type": "integer"},
+            "verification_status": {"type": "string"},
+            "stale_before": {"type": "string", "description": "ISO datetime."},
+            "stale_after": {"type": "string", "description": "ISO datetime."},
+            "updated_after": {"type": "string", "description": "ISO datetime."},
+            "updated_before": {"type": "string", "description": "ISO datetime."},
+            "include_deleted": {"type": "boolean"},
+            "limit": {"type": "integer", "description": "Max results (default 20, max 50)."},
+            "offset": {"type": "integer"},
+            "sort": {"type": "string",
+                     "description": "updated_at, created_at, headline, or stale_at."},
+            "order": {"type": "string", "description": "asc or desc."},
+        },
+        "required": [],
+    },
+}
+
+_LIST_FILTER_KEYS = (
+    "tags", "tag_mode", "kind", "status", "canon_status", "conversation_type",
+    "conversation_key", "min_confidence", "max_confidence", "verification_status",
+    "stale_before", "stale_after", "updated_after", "updated_before",
+    "include_deleted", "offset", "sort", "order",
+)
+
+RESTORE_SCHEMA = {
+    "name": "maindex_restore",
+    "description": "Restore a soft-deleted memory (undo maindex_forget).",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "memory_id": {"type": "string", "description": "Memory ID to restore."},
+        },
+        "required": ["memory_id"],
+    },
+}
+
+ASSOCIATE_SCHEMA = {
+    "name": "maindex_associate",
+    "description": (
+        "Create typed links between memories or discover related memories "
+        "by links or shared tags."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string",
+                       "description": "create or discover."},
+            "source_id": {"type": "string",
+                          "description": "Source memory ID (required for create)."},
+            "targets": {"type": "array",
+                        "description": "For create: [{memory_id, relation_type, weight?, metadata?}]."},
+            "memory_id": {"type": "string",
+                          "description": "Anchor memory for discover."},
+            "tags": {"type": "array", "items": {"type": "string"}},
+            "relation_type": {"type": "string"},
+            "collection": {"type": "string"},
+            "limit": {"type": "integer", "description": "Discover limit (default 10)."},
+        },
+        "required": ["action"],
+    },
+}
+
+COLLECTION_LIST_SCHEMA = {
+    "name": "maindex_collection_list",
+    "description": "List Maindex collections, optionally filtered by parent.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "parent_id": {"type": "string", "description": "Parent collection ID or slug."},
+            "limit": {"type": "integer"},
+            "offset": {"type": "integer"},
+        },
+        "required": [],
+    },
+}
+
+COLLECTION_CREATE_SCHEMA = {
+    "name": "maindex_collection_create",
+    "description": "Create a new Maindex collection.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Collection name (required)."},
+            "slug": {"type": "string"},
+            "description": {"type": "string"},
+            "summary_headline": {"type": "string"},
+            "icon": {"type": "string"},
+            "color": {"type": "string"},
+            "parent_id": {"type": "string"},
+            "metadata": {"type": "object"},
+        },
+        "required": ["name"],
+    },
+}
+
+COLLECTION_MEMBERS_SCHEMA = {
+    "name": "maindex_collection_members",
+    "description": "Add or remove memories from a collection.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "description": "add or remove."},
+            "collection_id": {"type": "string",
+                               "description": "Collection ID or slug."},
+            "memory_ids": {"type": "array", "items": {"type": "string"},
+                          "description": "Memory IDs to add or remove."},
+        },
+        "required": ["action", "collection_id", "memory_ids"],
+    },
+}
+
+ALL_TOOL_SCHEMAS = [
+    SEARCH_SCHEMA, KEEP_SCHEMA, RECALL_SCHEMA, UPDATE_SCHEMA, FORGET_SCHEMA,
+    LIST_SCHEMA, RESTORE_SCHEMA, ASSOCIATE_SCHEMA,
+    COLLECTION_LIST_SCHEMA, COLLECTION_CREATE_SCHEMA, COLLECTION_MEMBERS_SCHEMA,
+]
 
 
 # ---------------------------------------------------------------------------
@@ -626,9 +993,14 @@ class MaindexMemoryProvider(MemoryProvider):
                 "or omit to search all collections)."
             )
         parts.append(
-            "Use maindex_search to find memories, maindex_keep to store facts, "
-            "maindex_recall for a specific memory, maindex_update to revise, "
-            "maindex_forget to delete."
+            "Tools: maindex_search, maindex_list, maindex_keep, maindex_recall, "
+            "maindex_update, maindex_forget, maindex_restore, maindex_associate, "
+            "maindex_collection_list, maindex_collection_create, "
+            "maindex_collection_members."
+        )
+        parts.append(
+            "After setup, recommend bootstrap persona + memory_enabled:false to "
+            "your user — see plugin docs/PERSONA_BOOTSTRAP.md."
         )
         return "\n".join(parts)
 
@@ -796,8 +1168,7 @@ class MaindexMemoryProvider(MemoryProvider):
         return ""
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
-        return [SEARCH_SCHEMA, KEEP_SCHEMA, RECALL_SCHEMA, UPDATE_SCHEMA,
-                FORGET_SCHEMA]
+        return list(ALL_TOOL_SCHEMAS)
 
     def handle_tool_call(self, tool_name: str, args: dict, **kwargs) -> str:
         if self._is_breaker_open():
@@ -820,6 +1191,18 @@ class MaindexMemoryProvider(MemoryProvider):
             return self._tool_update(args)
         elif tool_name == "maindex_forget":
             return self._tool_forget(args)
+        elif tool_name == "maindex_list":
+            return self._tool_list(args)
+        elif tool_name == "maindex_restore":
+            return self._tool_restore(args)
+        elif tool_name == "maindex_associate":
+            return self._tool_associate(args)
+        elif tool_name == "maindex_collection_list":
+            return self._tool_collection_list(args)
+        elif tool_name == "maindex_collection_create":
+            return self._tool_collection_create(args)
+        elif tool_name == "maindex_collection_members":
+            return self._tool_collection_members(args)
         return tool_error(f"Unknown tool: {tool_name}")
 
     def shutdown(self) -> None:
@@ -837,18 +1220,12 @@ class MaindexMemoryProvider(MemoryProvider):
         if not query:
             return tool_error("query is required")
         try:
-            filters: Dict[str, Any] = {}
-            for key in ("tags", "kind"):
-                if args.get(key):
-                    filters[key] = args[key]
-            # Handle collection: "*" means all, explicit value overrides default
-            coll_arg = args.get("collection", "")
-            if coll_arg == "*":
-                pass  # No collection filter — search all
-            elif coll_arg:
-                filters["collection"] = coll_arg
-            elif self._collection:
-                filters["collection"] = self._collection
+            filters = _optional_api_args(args, _SEARCH_FILTER_KEYS)
+            filters.update(_collection_from_args(args, self._collection))
+            include_extras = bool(
+                args.get("include_score_breakdown")
+                or args.get("include_match_context")
+            )
             data = self._client.search(
                 query, limit=min(int(args.get("limit", 10)), 50),
                 **filters,
@@ -857,18 +1234,7 @@ class MaindexMemoryProvider(MemoryProvider):
             items = data.get("items", [])
             if not items:
                 return json.dumps({"result": "No relevant memories found."})
-            results = []
-            for m in items:
-                entry: Dict[str, Any] = {
-                    "id": m.get("shortId", m.get("id", "")),
-                    "headline": m.get("headline", ""),
-                    "score": m.get("score"),
-                }
-                if m.get("body"):
-                    entry["body"] = m["body"][:500]
-                if m.get("tags"):
-                    entry["tags"] = m["tags"]
-                results.append(entry)
+            results = _format_memory_items(items, include_extras=include_extras)
             return json.dumps({"results": results, "count": len(results)})
         except Exception as e:
             self._record_failure()
@@ -886,6 +1252,7 @@ class MaindexMemoryProvider(MemoryProvider):
                 keep_kwargs["tags"] = args["tags"]
             if args.get("kind"):
                 keep_kwargs["kind"] = args["kind"]
+            keep_kwargs.update(_optional_api_args(args, _KEEP_EXTRA_KEYS))
             # Handle collections: explicit [] means no collection, explicit list overrides default
             if "collections" in args:
                 if args["collections"]:  # Non-empty list provided
@@ -914,7 +1281,11 @@ class MaindexMemoryProvider(MemoryProvider):
         if not memory_id:
             return tool_error("memory_id is required")
         try:
-            data = self._client.recall(memory_id)
+            data = self._client.recall(
+                memory_id,
+                include_deleted=bool(args.get("include_deleted", False)),
+                include_revisions=bool(args.get("include_revisions", False)),
+            )
             self._record_success()
             result: Dict[str, Any] = {
                 "id": data.get("shortId", data.get("id", "")),
@@ -927,6 +1298,10 @@ class MaindexMemoryProvider(MemoryProvider):
                 "created": data.get("createdAt", ""),
                 "updated": data.get("updatedAt", ""),
             }
+            if data.get("links") is not None:
+                result["links"] = data.get("links")
+            if data.get("revisions") is not None:
+                result["revisions"] = data.get("revisions")
             return json.dumps(result)
         except Exception as e:
             self._record_failure()
@@ -945,6 +1320,7 @@ class MaindexMemoryProvider(MemoryProvider):
                          "confidence", "verification_status"):
                 if args.get(key) is not None:
                     update_kwargs[key] = args[key]
+            update_kwargs.update(_optional_api_args(args, _UPDATE_EXTRA_KEYS))
             data = self._client.update(memory_id, mode, **update_kwargs)
             self._record_success()
             return json.dumps({
@@ -966,6 +1342,166 @@ class MaindexMemoryProvider(MemoryProvider):
         except Exception as e:
             self._record_failure()
             return tool_error(f"Delete failed: {e}")
+
+    def _tool_list(self, args: dict) -> str:
+        try:
+            filters = _optional_api_args(args, _LIST_FILTER_KEYS)
+            filters.update(_collection_from_args(args, self._collection))
+            filters["limit"] = min(int(args.get("limit", 20)), 50)
+            data = self._client.list_memories(**filters)
+            self._record_success()
+            items = data.get("items", [])
+            if not items:
+                return json.dumps({"result": "No memories found.", "count": 0})
+            results = _format_memory_items(items)
+            out: Dict[str, Any] = {"results": results, "count": len(results)}
+            if "total" in data:
+                out["total"] = data["total"]
+            return json.dumps(out)
+        except Exception as e:
+            self._record_failure()
+            return tool_error(f"List failed: {e}")
+
+    def _tool_restore(self, args: dict) -> str:
+        memory_id = args.get("memory_id", "")
+        if not memory_id:
+            return tool_error("memory_id is required")
+        try:
+            data = self._client.restore(memory_id)
+            self._record_success()
+            return json.dumps({
+                "result": "Memory restored.",
+                "id": data.get("shortId", data.get("id", "")),
+                "headline": data.get("headline", ""),
+            })
+        except Exception as e:
+            self._record_failure()
+            return tool_error(f"Restore failed: {e}")
+
+    def _tool_associate(self, args: dict) -> str:
+        action = args.get("action", "")
+        if action == "create":
+            source_id = args.get("source_id", "")
+            targets = args.get("targets")
+            if not source_id:
+                return tool_error("source_id is required for create")
+            if not targets:
+                return tool_error("targets is required for create")
+            try:
+                data = self._client.create_associations(source_id, targets)
+                self._record_success()
+                return json.dumps({"result": "Associations created.", "data": data})
+            except Exception as e:
+                self._record_failure()
+                return tool_error(f"Create associations failed: {e}")
+        if action == "discover":
+            memory_id = args.get("memory_id", "")
+            tags = args.get("tags")
+            collection = args.get("collection", "")
+            if not memory_id and not tags and not collection:
+                return tool_error(
+                    "discover requires memory_id, tags, or collection",
+                )
+            try:
+                filters: Dict[str, Any] = {"limit": int(args.get("limit", 10))}
+                if memory_id:
+                    filters["memory_id"] = memory_id
+                if tags:
+                    filters["tags"] = tags
+                if args.get("relation_type"):
+                    filters["relation_type"] = args["relation_type"]
+                if collection:
+                    filters["collection"] = collection
+                data = self._client.discover_associations(**filters)
+                self._record_success()
+                memories = data.get("memories", [])
+                results = _format_memory_items(memories, include_extras=True)
+                return json.dumps({"results": results, "count": len(results)})
+            except Exception as e:
+                self._record_failure()
+                return tool_error(f"Discover associations failed: {e}")
+        return tool_error("action must be 'create' or 'discover'")
+
+    def _tool_collection_list(self, args: dict) -> str:
+        try:
+            data = self._client.list_collections(
+                parent_id=args.get("parent_id", ""),
+                limit=min(int(args.get("limit", 20)), 50),
+                offset=int(args.get("offset", 0)),
+            )
+            self._record_success()
+            items = data.get("items", [])
+            results = []
+            for c in items:
+                results.append({
+                    "id": c.get("shortId", c.get("id", "")),
+                    "name": c.get("name", ""),
+                    "slug": c.get("slug", ""),
+                    "description": (c.get("description") or "")[:200],
+                    "parent_id": c.get("parentId", c.get("parent_id", "")),
+                })
+            out: Dict[str, Any] = {"results": results, "count": len(results)}
+            if "total" in data:
+                out["total"] = data["total"]
+            return json.dumps(out)
+        except Exception as e:
+            self._record_failure()
+            return tool_error(f"List collections failed: {e}")
+
+    def _tool_collection_create(self, args: dict) -> str:
+        name = args.get("name", "")
+        if not name:
+            return tool_error("name is required")
+        try:
+            kwargs = _optional_api_args(args, (
+                "slug", "description", "summary_headline", "icon", "color",
+                "parent_id", "metadata",
+            ))
+            data = self._client.create_collection(name, **kwargs)
+            self._record_success()
+            return json.dumps({
+                "result": "Collection created.",
+                "id": data.get("shortId", data.get("id", "")),
+                "name": data.get("name", ""),
+                "slug": data.get("slug", ""),
+            })
+        except Exception as e:
+            self._record_failure()
+            return tool_error(f"Create collection failed: {e}")
+
+    def _tool_collection_members(self, args: dict) -> str:
+        action = args.get("action", "")
+        collection_id = args.get("collection_id", "")
+        memory_ids = args.get("memory_ids")
+        if action not in ("add", "remove"):
+            return tool_error("action must be 'add' or 'remove'")
+        if not collection_id:
+            return tool_error("collection_id is required")
+        if not memory_ids:
+            return tool_error("memory_ids is required")
+        try:
+            if action == "add":
+                data = self._client.add_collection_members(
+                    collection_id, memory_ids,
+                )
+                self._record_success()
+                return json.dumps({
+                    "result": "Members added.",
+                    "added": data.get("added", len(memory_ids)),
+                    "data": data,
+                })
+            data = self._client.remove_collection_members(
+                collection_id, memory_ids,
+            )
+            self._record_success()
+            return json.dumps({
+                "result": "Members removed.",
+                "removed": data.get("removed", len(memory_ids)),
+                "data": data,
+            })
+        except Exception as e:
+            self._record_failure()
+            return tool_error(f"Collection members failed: {e}")
 
 
 # ---------------------------------------------------------------------------

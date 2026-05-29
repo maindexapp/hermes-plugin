@@ -7,6 +7,10 @@ description: Memory conventions, tool guidance, and archivist behavior for the M
 
 When using the Maindex tools in Hermes, follow these conventions for a well-structured knowledge graph.
 
+For deployment setup (`memory_enabled: false`, bootstrap persona), see the plugin
+[docs/AGENT_MEMORY.md](../../docs/AGENT_MEMORY.md) and
+[docs/PERSONA_BOOTSTRAP.md](../../docs/PERSONA_BOOTSTRAP.md).
+
 ### Tagging
 
 - Use **faceted tags** for structured categorization: `domain:physics`, `project:my-app`, `function:premise`, `status:blocked`, `topic:authentication`.
@@ -60,9 +64,10 @@ Create typed associations between memories. Use specific relation types:
 - `belongs_to` — for parent-child hierarchies
 - `alternative_to` — for sibling variants
 
-### Search vs. Recall
+### Search vs. List vs. Recall
 
-- Use **`maindex_search`** when looking for something **by meaning** — it cascades through full-text, fuzzy, semantic, and hybrid retrieval.
+- Use **`maindex_search`** when looking for something **by meaning** — full-text, fuzzy, semantic, and hybrid retrieval.
+- Use **`maindex_list`** when you need to **browse or filter** (kind, tags, collection, dates) without a search query.
 - Use **`maindex_recall`** when you have a **specific ID**.
 
 ## The Archivist
@@ -103,7 +108,7 @@ As you work with the user's knowledge:
 - **Suggest organization** when you notice a cluster of related memories that aren't organized together.
 - **Flag stale content** if you encounter memories that seem outdated or contradicted by newer information.
 
-Note: The Hermes plugin exposes 5 core tools. Operations like typed associations, bulk updates, collection management, and supersession chains require the full Expert API via an MCP-connected client or the [Maindex dashboard](https://maindex.io/dashboard).
+The Hermes plugin exposes 11 tools including associations and collection management. For bulk operations beyond these tools, use the Expert MCP client or the [Maindex dashboard](https://maindex.io/dashboard).
 
 #### Surface Connections
 
@@ -142,6 +147,7 @@ Use this reference to pick the right Maindex tool for the task.
 | Goal | Tool |
 |---|---|
 | Find memories by meaning, keywords, or concepts | `maindex_search` |
+| Browse or filter without a search query | `maindex_list` |
 | Get one specific memory by ID | `maindex_recall` |
 
 **Organizing knowledge:**
@@ -151,6 +157,10 @@ Use this reference to pick the right Maindex tool for the task.
 | Revise tags, kind, or content of a memory | `maindex_update` |
 | Change canon status or verification status | `maindex_update` (mode `revision_only`) |
 | Soft-delete a memory | `maindex_forget` |
+| Restore a soft-deleted memory | `maindex_restore` |
+| Create or discover typed links | `maindex_associate` |
+| List / create collections | `maindex_collection_list`, `maindex_collection_create` |
+| Add or remove collection members | `maindex_collection_members` |
 
 ## Tool Details
 

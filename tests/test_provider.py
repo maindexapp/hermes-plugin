@@ -199,9 +199,9 @@ class TestSystemPrompt:
 
 class TestToolSchemas:
 
-    def test_returns_exactly_five_schemas(self, provider):
+    def test_returns_exactly_eleven_schemas(self, provider):
         p, _ = provider
-        assert len(p.get_tool_schemas()) == 5
+        assert len(p.get_tool_schemas()) == 11
 
     def test_schema_names_match_expected_set(self, provider):
         p, _ = provider
@@ -209,7 +209,15 @@ class TestToolSchemas:
         assert names == {
             "maindex_search", "maindex_keep", "maindex_recall",
             "maindex_update", "maindex_forget",
+            "maindex_list", "maindex_restore", "maindex_associate",
+            "maindex_collection_list", "maindex_collection_create",
+            "maindex_collection_members",
         }
+
+    def test_search_schema_required_unchanged(self, provider):
+        p, _ = provider
+        search = next(s for s in p.get_tool_schemas() if s["name"] == "maindex_search")
+        assert search["parameters"]["required"] == ["query"]
 
     def test_update_schema_exposes_metadata_fields(self, provider):
         p, _ = provider
@@ -250,6 +258,34 @@ class TestToolRouting:
 
         p.handle_tool_call("maindex_forget", {"memory_id": "m"})
         mock.forget.assert_called_once()
+
+        mock.list_memories.return_value = {"items": []}
+        p.handle_tool_call("maindex_list", {"kind": "note"})
+        mock.list_memories.assert_called_once()
+
+        mock.restore.return_value = {"id": "x", "shortId": "mem-1"}
+        p.handle_tool_call("maindex_restore", {"memory_id": "m"})
+        mock.restore.assert_called_once()
+
+        mock.discover_associations.return_value = {"memories": []}
+        p.handle_tool_call("maindex_associate", {
+            "action": "discover", "memory_id": "mem-1",
+        })
+        mock.discover_associations.assert_called_once()
+
+        mock.list_collections.return_value = {"items": []}
+        p.handle_tool_call("maindex_collection_list", {})
+        mock.list_collections.assert_called_once()
+
+        mock.create_collection.return_value = {"id": "c", "shortId": "col-1"}
+        p.handle_tool_call("maindex_collection_create", {"name": "Proj"})
+        mock.create_collection.assert_called_once()
+
+        mock.add_collection_members.return_value = {"added": 1}
+        p.handle_tool_call("maindex_collection_members", {
+            "action": "add", "collection_id": "col-1", "memory_ids": ["mem-1"],
+        })
+        mock.add_collection_members.assert_called_once()
 
     def test_unknown_tool_returns_error(self, provider):
         p, _ = provider
@@ -382,6 +418,71 @@ class TestToolSearch:
         p._tool_search({"query": "test"})
         assert p._consecutive_failures == 1
 
+    def test_forwards_extended_search_params(self, provider):
+        p, mock = provider
+        mock.search.return_value = {"items": []}
+        p._tool_search({
+            "query": "test",
+            "search_strategy": "hybrid",
+            "tag_mode": "any",
+            "include_match_context": True,
+        })
+        _, kwargs = mock.search.call_args
+        assert kwargs["search_strategy"] == "hybrid"
+        assert kwargs["tag_mode"] == "any"
+        assert kwargs["include_match_context"] is True
+
+
+# ── Tool: list ───────────────────────────────────────────────────────────
+
+
+class TestToolList:
+
+    def test_applies_collection_fallback(self, provider):
+        p, mock = provider
+        p._collection = "project-x"
+        mock.list_memories.return_value = {"items": []}
+        p._tool_list({})
+        _, kwargs = mock.list_memories.call_args
+        assert kwargs["collection"] == "project-x"
+
+    def test_returns_results(self, provider):
+        p, mock = provider
+        mock.list_memories.return_value = {
+            "items": [{"shortId": "mem-1", "headline": "H", "tags": ["t1"]}],
+            "total": 1,
+        }
+        result = json.loads(p._tool_list({"kind": "decision"}))
+        assert result["count"] == 1
+        assert result["total"] == 1
+
+
+# ── Tool: restore ────────────────────────────────────────────────────────
+
+
+class TestToolRestore:
+
+    def test_requires_memory_id(self, provider):
+        p, _ = provider
+        result = json.loads(p._tool_restore({}))
+        assert "error" in result
+
+
+# ── Tool: associate ──────────────────────────────────────────────────────
+
+
+class TestToolAssociate:
+
+    def test_create_requires_source_and_targets(self, provider):
+        p, _ = provider
+        result = json.loads(p._tool_associate({"action": "create"}))
+        assert "error" in result
+
+    def test_discover_requires_filter(self, provider):
+        p, _ = provider
+        result = json.loads(p._tool_associate({"action": "discover"}))
+        assert "error" in result
+
 
 # ── Tool: keep ───────────────────────────────────────────────────────────
 
@@ -435,6 +536,18 @@ class TestToolKeep:
         p._tool_keep({"headline": "H"})
         assert p._consecutive_failures == 1
 
+    def test_forwards_extended_keep_fields(self, provider):
+        p, mock = provider
+        mock.keep.return_value = {"id": "x", "shortId": "mem-1"}
+        p._tool_keep({
+            "headline": "H",
+            "confidence": 90,
+            "metadata": {"key": "val"},
+        })
+        _, kwargs = mock.keep.call_args
+        assert kwargs["confidence"] == 90
+        assert kwargs["metadata"] == {"key": "val"}
+
 
 # ── Tool: recall ─────────────────────────────────────────────────────────
 
@@ -445,6 +558,17 @@ class TestToolRecall:
         p, _ = provider
         result = json.loads(p._tool_recall({}))
         assert "error" in result
+
+    def test_passes_include_deleted_to_client(self, provider):
+        p, mock = provider
+        mock.recall.return_value = {
+            "id": "x", "shortId": "mem-1", "headline": "H",
+            "body": "", "tags": [], "kind": "note", "canonStatus": "",
+            "collections": [], "createdAt": "", "updatedAt": "",
+        }
+        p._tool_recall({"memory_id": "mem-1", "include_deleted": True})
+        _, kwargs = mock.recall.call_args
+        assert kwargs["include_deleted"] is True
 
     def test_formats_full_response(self, provider):
         p, mock = provider
@@ -515,6 +639,16 @@ class TestToolUpdate:
         assert "headline" in kwargs
         assert "body" not in kwargs
         assert "canon_status" not in kwargs
+
+    def test_forwards_superseded_by(self, provider):
+        p, mock = provider
+        mock.update.return_value = {"id": "x", "shortId": "mem-1"}
+        p._tool_update({
+            "memory_id": "mem-1", "mode": "revision_only",
+            "superseded_by": "mem-2",
+        })
+        _, kwargs = mock.update.call_args
+        assert kwargs["superseded_by"] == "mem-2"
 
     def test_records_failure_on_api_exception(self, provider):
         p, mock = provider
