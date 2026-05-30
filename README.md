@@ -155,9 +155,10 @@ Config file: `$HERMES_HOME/maindex.json` (written by `hermes memory setup` or `s
 **Graph and collections**
 
 - **`maindex_associate`** — Create or discover typed links between memories.
-- **`maindex_collection_list`** — List collections.
+- **`maindex_collection_list`** — List collections (exact name; not `maindex_collections`).
 - **`maindex_collection_create`** — Create a collection.
-- **`maindex_collection_members`** — Add or remove memories from a collection.
+- **`maindex_collection_members`** — Add or remove memories from a collection (retroactive membership; not via `maindex_update`).
+- **`maindex_collection_delete`** — Delete a collection by ID or slug.
 
 ## Development
 

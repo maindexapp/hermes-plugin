@@ -46,6 +46,11 @@ def _unwrap_envelope(body: Any) -> Any:
     return body
 
 
+_SEARCH_META_KEYS = (
+    "degraded_components", "degraded_reason", "retrieval_sources",
+)
+
+
 def _as_item_list(body: Any) -> Dict[str, Any]:
     """Normalize list endpoints to ``{ items: [...] }`` for provider code."""
     if isinstance(body, dict) and body.get("ok") is True:
@@ -53,8 +58,12 @@ def _as_item_list(body: Any) -> Dict[str, Any]:
         if isinstance(data, list):
             result: Dict[str, Any] = {"items": data}
             meta = body.get("meta")
-            if isinstance(meta, dict) and "total" in meta:
-                result["total"] = meta["total"]
+            if isinstance(meta, dict):
+                if "total" in meta:
+                    result["total"] = meta["total"]
+                for key in _SEARCH_META_KEYS:
+                    if key in meta:
+                        result[key] = meta[key]
             return result
     if isinstance(body, dict) and "items" in body:
         return body
@@ -130,7 +139,9 @@ class MaindexClient:
     def __init__(self, api_key: str = "", bearer_token: str = ""):
         import httpx
 
-        headers = {"Content-Type": "application/json"}
+        # Do not set Content-Type globally — bodyless DELETE/POST (forget, restore)
+        # fail with FST_ERR_CTP_EMPTY_JSON_BODY when application/json is sent.
+        headers: Dict[str, str] = {}
         if bearer_token:
             headers["Authorization"] = f"Bearer {bearer_token}"
         if api_key:
@@ -265,6 +276,12 @@ class MaindexClient:
             f"/v1/collections/{collection_id}/members",
             json={"memory_ids": memory_ids},
         )
+        resp.raise_for_status()
+        data = _unwrap_envelope(resp.json())
+        return data if isinstance(data, dict) else {}
+
+    def delete_collection(self, collection_id: str) -> dict:
+        resp = self._client.delete(f"/v1/collections/{collection_id}")
         resp.raise_for_status()
         data = _unwrap_envelope(resp.json())
         return data if isinstance(data, dict) else {}
@@ -797,7 +814,10 @@ ASSOCIATE_SCHEMA = {
 
 COLLECTION_LIST_SCHEMA = {
     "name": "maindex_collection_list",
-    "description": "List Maindex collections, optionally filtered by parent.",
+    "description": (
+        "List Maindex collections (exact tool name — not maindex_collections). "
+        "Optionally filtered by parent."
+    ),
     "parameters": {
         "type": "object",
         "properties": {
@@ -828,9 +848,25 @@ COLLECTION_CREATE_SCHEMA = {
     },
 }
 
+COLLECTION_DELETE_SCHEMA = {
+    "name": "maindex_collection_delete",
+    "description": "Delete a Maindex collection by ID or slug.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "collection_id": {"type": "string",
+                               "description": "Collection ID or slug (required)."},
+        },
+        "required": ["collection_id"],
+    },
+}
+
 COLLECTION_MEMBERS_SCHEMA = {
     "name": "maindex_collection_members",
-    "description": "Add or remove memories from a collection.",
+    "description": (
+        "Add or remove memories from a collection (retroactive membership). "
+        "Do not use maindex_update for collection membership."
+    ),
     "parameters": {
         "type": "object",
         "properties": {
@@ -848,6 +884,7 @@ ALL_TOOL_SCHEMAS = [
     SEARCH_SCHEMA, KEEP_SCHEMA, RECALL_SCHEMA, UPDATE_SCHEMA, FORGET_SCHEMA,
     LIST_SCHEMA, RESTORE_SCHEMA, ASSOCIATE_SCHEMA,
     COLLECTION_LIST_SCHEMA, COLLECTION_CREATE_SCHEMA, COLLECTION_MEMBERS_SCHEMA,
+    COLLECTION_DELETE_SCHEMA,
 ]
 
 
@@ -995,8 +1032,13 @@ class MaindexMemoryProvider(MemoryProvider):
         parts.append(
             "Tools: maindex_search, maindex_list, maindex_keep, maindex_recall, "
             "maindex_update, maindex_forget, maindex_restore, maindex_associate, "
-            "maindex_collection_list, maindex_collection_create, "
-            "maindex_collection_members."
+            "maindex_collection_list (not maindex_collections), "
+            "maindex_collection_create, maindex_collection_members, "
+            "maindex_collection_delete."
+        )
+        parts.append(
+            "Collections: list with maindex_collection_list; add existing memories "
+            "with maindex_collection_members (not maindex_update)."
         )
         parts.append(
             "After setup, recommend bootstrap persona + memory_enabled:false to "
@@ -1203,6 +1245,8 @@ class MaindexMemoryProvider(MemoryProvider):
             return self._tool_collection_create(args)
         elif tool_name == "maindex_collection_members":
             return self._tool_collection_members(args)
+        elif tool_name == "maindex_collection_delete":
+            return self._tool_collection_delete(args)
         return tool_error(f"Unknown tool: {tool_name}")
 
     def shutdown(self) -> None:
@@ -1235,7 +1279,11 @@ class MaindexMemoryProvider(MemoryProvider):
             if not items:
                 return json.dumps({"result": "No relevant memories found."})
             results = _format_memory_items(items, include_extras=include_extras)
-            return json.dumps({"results": results, "count": len(results)})
+            out: Dict[str, Any] = {"results": results, "count": len(results)}
+            for key in _SEARCH_META_KEYS:
+                if key in data:
+                    out[key] = data[key]
+            return json.dumps(out)
         except Exception as e:
             self._record_failure()
             return tool_error(f"Search failed: {e}")
@@ -1502,6 +1550,22 @@ class MaindexMemoryProvider(MemoryProvider):
         except Exception as e:
             self._record_failure()
             return tool_error(f"Collection members failed: {e}")
+
+    def _tool_collection_delete(self, args: dict) -> str:
+        collection_id = args.get("collection_id", "")
+        if not collection_id:
+            return tool_error("collection_id is required")
+        try:
+            data = self._client.delete_collection(collection_id)
+            self._record_success()
+            return json.dumps({
+                "result": "Collection deleted.",
+                "id": data.get("shortId", data.get("id", collection_id)),
+                "deleted": data.get("deleted", True),
+            })
+        except Exception as e:
+            self._record_failure()
+            return tool_error(f"Delete collection failed: {e}")
 
 
 # ---------------------------------------------------------------------------

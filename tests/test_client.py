@@ -40,6 +40,11 @@ class TestAuthHeaders:
         assert "authorization" not in c._client.headers
         c.close()
 
+    def test_no_global_content_type_header(self):
+        c = MaindexClient(api_key="key-123")
+        assert "content-type" not in c._client.headers
+        c.close()
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -79,6 +84,20 @@ class TestSearch:
         result = client.search("dogs")
         assert len(result["items"]) == 1
         assert result["items"][0]["headline"] == "dogs"
+
+    def test_preserves_search_meta_from_envelope(self, client):
+        client._client.get.return_value = _mock_response(
+            _envelope(
+                [{"shortId": "mem-1a", "headline": "dogs"}],
+                degraded_components=["semantic"],
+                degraded_reason="embeddings unavailable",
+                retrieval_sources=["lexical"],
+            ),
+        )
+        result = client.search("dogs")
+        assert result["degraded_components"] == ["semantic"]
+        assert result["degraded_reason"] == "embeddings unavailable"
+        assert result["retrieval_sources"] == ["lexical"]
 
     def test_builds_params_with_defaults(self, client):
         client._client.get.return_value = _mock_response(_envelope([]))
@@ -270,6 +289,14 @@ class TestAssociations:
 
 
 class TestCollections:
+
+    def test_delete_collection(self, client):
+        client._client.delete.return_value = _mock_response(
+            _envelope({"deleted": True, "shortId": "col-1"}),
+        )
+        result = client.delete_collection("col-1")
+        client._client.delete.assert_called_once_with("/v1/collections/col-1")
+        assert result.get("deleted") is True
 
     def test_list_collections(self, client):
         client._client.get.return_value = _mock_response(_envelope([]))

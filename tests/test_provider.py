@@ -199,9 +199,9 @@ class TestSystemPrompt:
 
 class TestToolSchemas:
 
-    def test_returns_exactly_eleven_schemas(self, provider):
+    def test_returns_exactly_twelve_schemas(self, provider):
         p, _ = provider
-        assert len(p.get_tool_schemas()) == 11
+        assert len(p.get_tool_schemas()) == 12
 
     def test_schema_names_match_expected_set(self, provider):
         p, _ = provider
@@ -211,7 +211,7 @@ class TestToolSchemas:
             "maindex_update", "maindex_forget",
             "maindex_list", "maindex_restore", "maindex_associate",
             "maindex_collection_list", "maindex_collection_create",
-            "maindex_collection_members",
+            "maindex_collection_members", "maindex_collection_delete",
         }
 
     def test_search_schema_required_unchanged(self, provider):
@@ -286,6 +286,10 @@ class TestToolRouting:
             "action": "add", "collection_id": "col-1", "memory_ids": ["mem-1"],
         })
         mock.add_collection_members.assert_called_once()
+
+        mock.delete_collection.return_value = {"deleted": True, "shortId": "col-1"}
+        p.handle_tool_call("maindex_collection_delete", {"collection_id": "col-1"})
+        mock.delete_collection.assert_called_once()
 
     def test_unknown_tool_returns_error(self, provider):
         p, _ = provider
@@ -431,6 +435,19 @@ class TestToolSearch:
         assert kwargs["search_strategy"] == "hybrid"
         assert kwargs["tag_mode"] == "any"
         assert kwargs["include_match_context"] is True
+
+    def test_forwards_search_retrieval_meta(self, provider):
+        p, mock = provider
+        mock.search.return_value = {
+            "items": [{"shortId": "mem-1", "headline": "H"}],
+            "degraded_components": ["semantic"],
+            "degraded_reason": "embeddings unavailable",
+            "retrieval_sources": ["lexical"],
+        }
+        result = json.loads(p._tool_search({"query": "test"}))
+        assert result["degraded_components"] == ["semantic"]
+        assert result["degraded_reason"] == "embeddings unavailable"
+        assert result["retrieval_sources"] == ["lexical"]
 
 
 # ── Tool: list ───────────────────────────────────────────────────────────

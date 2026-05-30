@@ -53,7 +53,7 @@ After a successful recall, you may cache locally, e.g. `maindex-bootstrap-cache.
 Maintain one **hub** bootstrap memory; store detail in linked memories via
 `maindex_associate` rather than duplicating the full bootstrap in many keeps.
 
-## Tool quick reference (11 tools)
+## Tool quick reference (12 tools)
 
 | Goal | Tool |
 |------|------|
@@ -68,6 +68,14 @@ Maintain one **hub** bootstrap memory; store detail in linked memories via
 | List collections | `maindex_collection_list` |
 | Create a collection | `maindex_collection_create` |
 | Add/remove collection members | `maindex_collection_members` |
+| Delete a collection | `maindex_collection_delete` |
+
+## Common mistakes (discovery)
+
+- **List collections:** use `maindex_collection_list` — there is no `maindex_collections` tool.
+- **Add existing memories to a collection:** use `maindex_collection_members` with `action: add`. `maindex_update` does not set collection membership.
+- **Delete a collection:** use `maindex_collection_delete` with the collection ID or slug.
+- **Search health:** `maindex_search` may return `degraded_components`, `degraded_reason`, and `retrieval_sources` when the API reports retrieval issues (semantic score 0 alone does not always mean degradation).
 
 ## Best practices
 
@@ -97,7 +105,8 @@ conflicts when search returns contradictory memories.
 
 Set `MAINDEX_COLLECTION` or pass `collection` on tools. Use `collection: "*"`
 to search or list across all collections. Organize projects with
-`maindex_collection_create` and `maindex_collection_members`.
+`maindex_collection_create`, `maindex_collection_members`, and
+`maindex_collection_delete` when retiring a collection.
 
 ### Graph hygiene
 

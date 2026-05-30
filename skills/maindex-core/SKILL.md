@@ -108,7 +108,7 @@ As you work with the user's knowledge:
 - **Suggest organization** when you notice a cluster of related memories that aren't organized together.
 - **Flag stale content** if you encounter memories that seem outdated or contradicted by newer information.
 
-The Hermes plugin exposes 11 tools including associations and collection management. For bulk operations beyond these tools, use the Expert MCP client or the [Maindex dashboard](https://maindex.io/dashboard).
+The Hermes plugin exposes 12 tools including associations and collection management. For bulk operations beyond these tools, use the Expert MCP client or the [Maindex dashboard](https://maindex.io/dashboard).
 
 #### Surface Connections
 
@@ -159,8 +159,8 @@ Use this reference to pick the right Maindex tool for the task.
 | Soft-delete a memory | `maindex_forget` |
 | Restore a soft-deleted memory | `maindex_restore` |
 | Create or discover typed links | `maindex_associate` |
-| List / create collections | `maindex_collection_list`, `maindex_collection_create` |
-| Add or remove collection members | `maindex_collection_members` |
+| List / create / delete collections | `maindex_collection_list`, `maindex_collection_create`, `maindex_collection_delete` |
+| Add or remove collection members | `maindex_collection_members` (not `maindex_update`) |
 
 ## Tool Details
 
