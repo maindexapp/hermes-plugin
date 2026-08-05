@@ -154,18 +154,37 @@ class MaindexClient:
         )
 
     def search(self, q: str, *, limit: int = 5,
-               search_strategy: str = "auto", **filters) -> dict:
+               search_strategy: str = "auto", team: str = "", **filters) -> dict:
         params: Dict[str, Any] = {
             "q": q[:1000], "limit": limit,
             "search_strategy": search_strategy,
         }
+        if team:
+            params["team"] = team
         params.update({k: v for k, v in filters.items() if v is not None})
         resp = self._client.get("/v1/search", params=params)
         resp.raise_for_status()
         return _as_item_list(resp.json())
 
     def keep(self, headline: str, body: str = "", tags: Optional[List[str]] = None,
-             kind: str = "note", **kwargs) -> dict:
+             kind: str = "note", team: str = "", **kwargs) -> dict:
+        if team:
+            collection = kwargs.pop("collection", None)
+            if not collection:
+                collections = kwargs.pop("collections", None)
+                if collections:
+                    collection = collections[0]
+            if not collection:
+                raise ValueError("collection is required when team is set")
+            content = body or headline
+            return self.team_keep(
+                team=team,
+                collection=collection,
+                content=content,
+                headline=headline,
+                tags=tags,
+                metadata=kwargs.get("metadata"),
+            )
         payload: Dict[str, Any] = {"headline": headline, "body": body,
                                     "kind": kind}
         if tags:
@@ -205,8 +224,10 @@ class MaindexClient:
         data = _unwrap_envelope(resp.json())
         return data if isinstance(data, dict) else {}
 
-    def list_memories(self, **filters) -> dict:
+    def list_memories(self, *, team: str = "", **filters) -> dict:
         params = {k: v for k, v in filters.items() if v is not None}
+        if team:
+            params["team"] = team
         resp = self._client.get("/v1/memories", params=params)
         resp.raise_for_status()
         return _as_item_list(resp.json())
@@ -229,6 +250,113 @@ class MaindexClient:
     def discover_associations(self, **filters) -> dict:
         params = {k: v for k, v in filters.items() if v is not None}
         resp = self._client.get("/v1/associations", params=params)
+        resp.raise_for_status()
+        data = _unwrap_envelope(resp.json())
+        return data if isinstance(data, dict) else {}
+
+    def remove_associations(self, memory_id: str, targets: list) -> dict:
+        resp = self._client.request(
+            "DELETE",
+            f"/v1/memories/{memory_id}/associations",
+            json={"targets": targets},
+        )
+        resp.raise_for_status()
+        data = _unwrap_envelope(resp.json())
+        return data if isinstance(data, dict) else {}
+
+    def remove_links_by_ids(self, link_ids: list) -> dict:
+        resp = self._client.request(
+            "DELETE",
+            "/v1/links",
+            json={"link_ids": link_ids},
+        )
+        resp.raise_for_status()
+        data = _unwrap_envelope(resp.json())
+        return data if isinstance(data, dict) else {}
+
+    def list_teams(self, *, skip_counts: bool = False) -> dict:
+        params: Dict[str, Any] = {}
+        if skip_counts:
+            params["skipCounts"] = "true"
+        resp = self._client.get("/v1/teams", params=params or None)
+        resp.raise_for_status()
+        return _as_item_list(resp.json())
+
+    def get_team(self, team_id: str, *, include: str = "members",
+                 skip_counts: bool = False) -> dict:
+        params: Dict[str, Any] = {"include": include}
+        if skip_counts:
+            params["skipCounts"] = "true"
+        resp = self._client.get(f"/v1/teams/{team_id}", params=params)
+        resp.raise_for_status()
+        data = _unwrap_envelope(resp.json())
+        return data if isinstance(data, dict) else {}
+
+    def create_team_collection(
+        self, team_id: str, name: str, **kwargs,
+    ) -> dict:
+        payload: Dict[str, Any] = {"name": name}
+        for key in ("slug", "description"):
+            val = kwargs.get(key)
+            if val:
+                payload[key] = val
+        resp = self._client.post(
+            f"/v1/teams/{team_id}/collections",
+            json=payload,
+        )
+        resp.raise_for_status()
+        data = _unwrap_envelope(resp.json())
+        return data if isinstance(data, dict) else {}
+
+    def list_team_members(self, team_id: str) -> dict:
+        resp = self._client.get(f"/v1/teams/{team_id}/members")
+        resp.raise_for_status()
+        return _as_item_list(resp.json())
+
+    def invite_team_member(
+        self, team_id: str, email: str, role: str,
+    ) -> dict:
+        resp = self._client.post(
+            f"/v1/teams/{team_id}/invites",
+            json={"email": email, "role": role},
+        )
+        resp.raise_for_status()
+        data = _unwrap_envelope(resp.json())
+        return data if isinstance(data, dict) else {}
+
+    def set_member_role(
+        self, team_id: str, member_id: str, role: str,
+    ) -> dict:
+        resp = self._client.post(
+            f"/v1/teams/{team_id}/members/{member_id}/role",
+            json={"role": role},
+        )
+        resp.raise_for_status()
+        data = _unwrap_envelope(resp.json())
+        return data if isinstance(data, dict) else {}
+
+    def team_keep(
+        self,
+        *,
+        team: str,
+        collection: str,
+        content: str,
+        headline: str = "",
+        tags: Optional[List[str]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> dict:
+        payload: Dict[str, Any] = {
+            "team": team,
+            "collection": collection,
+            "content": content,
+        }
+        if headline:
+            payload["headline"] = headline
+        if tags:
+            payload["tags"] = tags
+        if metadata:
+            payload["metadata"] = metadata
+        resp = self._client.post("/v1/team-keep", json=payload)
         resp.raise_for_status()
         data = _unwrap_envelope(resp.json())
         return data if isinstance(data, dict) else {}
@@ -589,13 +717,15 @@ SEARCH_SCHEMA = {
             "verification_status": {"type": "string",
                                     "description": "unverified, verified, disputed, superseded."},
             "offset": {"type": "integer", "description": "Pagination offset."},
+            "team": {"type": "string",
+                       "description": "Team slug to scope search (use personal for personal memories only)."},
         },
         "required": ["query"],
     },
 }
 
 _SEARCH_FILTER_KEYS = (
-    "tags", "kind", "tag_mode", "status", "min_confidence", "max_confidence",
+    "team", "tags", "kind", "tag_mode", "status", "min_confidence", "max_confidence",
     "verification_status", "search_strategy", "sort", "order", "offset",
     "include_graph_neighbors", "include_score_breakdown", "include_match_context",
     "stale_penalty",
@@ -635,6 +765,10 @@ KEEP_SCHEMA = {
                                    "description": "Human collaborator metadata (name, email, etc.)."},
             "signer": {"type": "object",
                        "description": "Agent signer (requires agent_id and run_id when set)."},
+            "team": {"type": "string",
+                       "description": "Team slug — routes to team-keep (requires collection)."},
+            "collection": {"type": "string",
+                          "description": "Team collection slug (required with team)."},
         },
         "required": ["headline"],
     },
@@ -762,13 +896,15 @@ LIST_SCHEMA = {
             "sort": {"type": "string",
                      "description": "updated_at, created_at, headline, or stale_at."},
             "order": {"type": "string", "description": "asc or desc."},
+            "team": {"type": "string",
+                       "description": "Team slug to scope list (use personal for personal memories only)."},
         },
         "required": [],
     },
 }
 
 _LIST_FILTER_KEYS = (
-    "tags", "tag_mode", "kind", "status", "canon_status", "conversation_type",
+    "team", "tags", "tag_mode", "kind", "status", "canon_status", "conversation_type",
     "conversation_key", "min_confidence", "max_confidence", "verification_status",
     "stale_before", "stale_after", "updated_after", "updated_before",
     "include_deleted", "offset", "sort", "order",
@@ -880,11 +1016,144 @@ COLLECTION_MEMBERS_SCHEMA = {
     },
 }
 
+
+UNASSOCIATE_SCHEMA = {
+    "name": "maindex_unassociate",
+    "description": (
+        "Remove typed links between memories (inverse links auto-removed for "
+        "known types). Idempotent — missing links appear in not_found. "
+        "Provide link_ids OR from_memory_id + targets."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "link_ids": {"type": "array", "items": {"type": "string"},
+                         "description": "Link IDs to remove (preferred mode)."},
+            "from_memory_id": {"type": "string",
+                               "description": "Source memory ID (triple mode)."},
+            "targets": {"type": "array",
+                        "description": "Targets to unlink: [{memory_id, relation_type}] or [{memory_id, all_relations: true}]."},
+        },
+        "required": [],
+    },
+}
+
+TEAM_LIST_SCHEMA = {
+    "name": "maindex_team_list",
+    "description": (
+        "List teams you belong to, or get detail for one team by ID or slug."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "team_id": {"type": "string",
+                        "description": "Optional team UUID or slug for detail view."},
+            "skip_counts": {"type": "boolean",
+                            "description": "Skip memory/collection counts (faster)."},
+        },
+        "required": [],
+    },
+}
+
+TEAM_COLLECTION_CREATE_SCHEMA = {
+    "name": "maindex_team_collection_create",
+    "description": "Create a collection within a team.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "team_id": {"type": "string",
+                        "description": "Team UUID or slug (required)."},
+            "name": {"type": "string", "description": "Collection name (required)."},
+            "slug": {"type": "string", "description": "Collection slug (optional)."},
+            "description": {"type": "string"},
+        },
+        "required": ["team_id", "name"],
+    },
+}
+
+TEAM_MEMBERS_SCHEMA = {
+    "name": "maindex_team_members",
+    "description": "List members of a team (active and invited).",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "team_id": {"type": "string",
+                        "description": "Team UUID or slug (required)."},
+        },
+        "required": ["team_id"],
+    },
+}
+
+TEAM_INVITE_SCHEMA = {
+    "name": "maindex_team_invite",
+    "description": "Invite a member to a team by email.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "team_id": {"type": "string",
+                        "description": "Team UUID or slug (required)."},
+            "email": {"type": "string", "description": "Invitee email (required)."},
+            "role": {"type": "string",
+                     "description": "Role: manager, editor, or viewer (required)."},
+        },
+        "required": ["team_id", "email", "role"],
+    },
+}
+
+TEAM_KEEP_SCHEMA = {
+    "name": "maindex_team_keep",
+    "description": (
+        "Store a memory in a team collection. Subject to team injection "
+        "review policies. Requires team slug and collection slug."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "team": {"type": "string", "description": "Team slug (required)."},
+            "collection": {"type": "string",
+                           "description": "Team collection slug (required)."},
+            "content": {"type": "string",
+                        "description": "Memory body/content (required)."},
+            "headline": {"type": "string",
+                         "description": "Title (defaults from content)."},
+            "tags": {"type": "array", "items": {"type": "string"}},
+            "metadata": {"type": "object"},
+        },
+        "required": ["team", "collection", "content"],
+    },
+}
+
+TEAM_SEARCH_SCHEMA = {
+    "name": "maindex_team_search",
+    "description": (
+        "Search memories scoped to a team. Same retrieval tiers as "
+        "maindex_search but limited to team-accessible collections."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "What to search for."},
+            "team": {"type": "string", "description": "Team slug (required)."},
+            "limit": {"type": "integer",
+                       "description": "Max results (default: 10, max: 50)."},
+            "tags": {"type": "array", "items": {"type": "string"}},
+            "kind": {"type": "string"},
+            "collection": {"type": "string",
+                          "description": "Filter by team collection slug."},
+            "search_strategy": {"type": "string",
+                                "description": "auto, lexical, semantic, or hybrid."},
+        },
+        "required": ["query", "team"],
+    },
+}
+
 ALL_TOOL_SCHEMAS = [
     SEARCH_SCHEMA, KEEP_SCHEMA, RECALL_SCHEMA, UPDATE_SCHEMA, FORGET_SCHEMA,
-    LIST_SCHEMA, RESTORE_SCHEMA, ASSOCIATE_SCHEMA,
+    LIST_SCHEMA, RESTORE_SCHEMA, ASSOCIATE_SCHEMA, UNASSOCIATE_SCHEMA,
     COLLECTION_LIST_SCHEMA, COLLECTION_CREATE_SCHEMA, COLLECTION_MEMBERS_SCHEMA,
     COLLECTION_DELETE_SCHEMA,
+    TEAM_LIST_SCHEMA, TEAM_COLLECTION_CREATE_SCHEMA, TEAM_MEMBERS_SCHEMA,
+    TEAM_INVITE_SCHEMA, TEAM_KEEP_SCHEMA, TEAM_SEARCH_SCHEMA,
 ]
 
 
@@ -1032,9 +1301,11 @@ class MaindexMemoryProvider(MemoryProvider):
         parts.append(
             "Tools: maindex_search, maindex_list, maindex_keep, maindex_recall, "
             "maindex_update, maindex_forget, maindex_restore, maindex_associate, "
-            "maindex_collection_list (not maindex_collections), "
+            "maindex_unassociate, maindex_collection_list (not maindex_collections), "
             "maindex_collection_create, maindex_collection_members, "
-            "maindex_collection_delete."
+            "maindex_collection_delete, maindex_team_list, "
+            "maindex_team_collection_create, maindex_team_members, "
+            "maindex_team_invite, maindex_team_keep, maindex_team_search."
         )
         parts.append(
             "Collections: list with maindex_collection_list; add existing memories "
@@ -1247,6 +1518,20 @@ class MaindexMemoryProvider(MemoryProvider):
             return self._tool_collection_members(args)
         elif tool_name == "maindex_collection_delete":
             return self._tool_collection_delete(args)
+        elif tool_name == "maindex_unassociate":
+            return self._tool_unassociate(args)
+        elif tool_name == "maindex_team_list":
+            return self._tool_team_list(args)
+        elif tool_name == "maindex_team_collection_create":
+            return self._tool_team_collection_create(args)
+        elif tool_name == "maindex_team_members":
+            return self._tool_team_members(args)
+        elif tool_name == "maindex_team_invite":
+            return self._tool_team_invite(args)
+        elif tool_name == "maindex_team_keep":
+            return self._tool_team_keep(args)
+        elif tool_name == "maindex_team_search":
+            return self._tool_team_search(args)
         return tool_error(f"Unknown tool: {tool_name}")
 
     def shutdown(self) -> None:
@@ -1301,6 +1586,10 @@ class MaindexMemoryProvider(MemoryProvider):
             if args.get("kind"):
                 keep_kwargs["kind"] = args["kind"]
             keep_kwargs.update(_optional_api_args(args, _KEEP_EXTRA_KEYS))
+            if args.get("team"):
+                keep_kwargs["team"] = args["team"]
+            if args.get("collection"):
+                keep_kwargs["collection"] = args["collection"]
             # Handle collections: explicit [] means no collection, explicit list overrides default
             if "collections" in args:
                 if args["collections"]:  # Non-empty list provided
@@ -1566,6 +1855,185 @@ class MaindexMemoryProvider(MemoryProvider):
         except Exception as e:
             self._record_failure()
             return tool_error(f"Delete collection failed: {e}")
+
+    def _tool_unassociate(self, args: dict) -> str:
+        link_ids = args.get("link_ids")
+        from_memory_id = args.get("from_memory_id", "")
+        targets = args.get("targets")
+        has_link_ids = isinstance(link_ids, list) and len(link_ids) > 0
+        has_triple = from_memory_id and isinstance(targets, list) and len(targets) > 0
+        if has_link_ids and has_triple:
+            return tool_error("Provide either link_ids or from_memory_id + targets, not both")
+        if not has_link_ids and not has_triple:
+            return tool_error("Provide link_ids or from_memory_id + targets")
+        try:
+            if has_link_ids:
+                data = self._client.remove_links_by_ids(link_ids)
+            else:
+                data = self._client.remove_associations(from_memory_id, targets)
+            self._record_success()
+            return json.dumps({
+                "result": "Links removed.",
+                "removed": data.get("removed", []),
+                "not_found": data.get("notFound", data.get("not_found", [])),
+            })
+        except Exception as e:
+            self._record_failure()
+            return tool_error(f"Unassociate failed: {e}")
+
+    def _tool_team_list(self, args: dict) -> str:
+        try:
+            skip_counts = bool(args.get("skip_counts", False))
+            team_id = args.get("team_id", "")
+            if team_id:
+                data = self._client.get_team(team_id, skip_counts=skip_counts)
+                self._record_success()
+                return json.dumps({"team": data})
+            data = self._client.list_teams(skip_counts=skip_counts)
+            self._record_success()
+            items = data.get("items", [])
+            results = []
+            for t in items:
+                results.append({
+                    "id": t.get("id", ""),
+                    "slug": t.get("slug", ""),
+                    "name": t.get("name", ""),
+                    "status": t.get("status", ""),
+                    "member_role": t.get("memberRole", t.get("member_role", "")),
+                })
+            return json.dumps({"results": results, "count": len(results)})
+        except Exception as e:
+            self._record_failure()
+            return tool_error(f"Team list failed: {e}")
+
+    def _tool_team_collection_create(self, args: dict) -> str:
+        team_id = args.get("team_id", "")
+        name = args.get("name", "")
+        if not team_id:
+            return tool_error("team_id is required")
+        if not name:
+            return tool_error("name is required")
+        try:
+            kwargs = _optional_api_args(args, ("slug", "description"))
+            data = self._client.create_team_collection(team_id, name, **kwargs)
+            self._record_success()
+            return json.dumps({
+                "result": "Team collection created.",
+                "id": data.get("id", ""),
+                "slug": data.get("slug", ""),
+                "name": data.get("name", ""),
+            })
+        except Exception as e:
+            self._record_failure()
+            return tool_error(f"Create team collection failed: {e}")
+
+    def _tool_team_members(self, args: dict) -> str:
+        team_id = args.get("team_id", "")
+        if not team_id:
+            return tool_error("team_id is required")
+        try:
+            data = self._client.list_team_members(team_id)
+            self._record_success()
+            items = data.get("items", [])
+            results = []
+            for m in items:
+                results.append({
+                    "id": m.get("id", ""),
+                    "email": m.get("email", m.get("inviteEmail", "")),
+                    "role": m.get("role", ""),
+                    "status": m.get("status", ""),
+                })
+            return json.dumps({"results": results, "count": len(results)})
+        except Exception as e:
+            self._record_failure()
+            return tool_error(f"List team members failed: {e}")
+
+    def _tool_team_invite(self, args: dict) -> str:
+        team_id = args.get("team_id", "")
+        email = args.get("email", "")
+        role = args.get("role", "")
+        if not team_id:
+            return tool_error("team_id is required")
+        if not email:
+            return tool_error("email is required")
+        if not role:
+            return tool_error("role is required")
+        try:
+            data = self._client.invite_team_member(team_id, email, role)
+            self._record_success()
+            return json.dumps({
+                "result": "Invite sent.",
+                "id": data.get("id", ""),
+                "email": data.get("inviteEmail", data.get("email", email)),
+                "role": data.get("role", role),
+                "status": data.get("status", ""),
+            })
+        except Exception as e:
+            self._record_failure()
+            return tool_error(f"Team invite failed: {e}")
+
+    def _tool_team_keep(self, args: dict) -> str:
+        team = args.get("team", "")
+        collection = args.get("collection", "")
+        content = args.get("content", "")
+        if not team:
+            return tool_error("team is required")
+        if not collection:
+            return tool_error("collection is required")
+        if not content:
+            return tool_error("content is required")
+        try:
+            data = self._client.team_keep(
+                team=team,
+                collection=collection,
+                content=content,
+                headline=args.get("headline", ""),
+                tags=args.get("tags"),
+                metadata=args.get("metadata"),
+            )
+            self._record_success()
+            return json.dumps({
+                "result": "Team memory stored.",
+                "id": data.get("shortId", data.get("id", "")),
+                "headline": data.get("headline", ""),
+            })
+        except Exception as e:
+            self._record_failure()
+            return tool_error(f"Team keep failed: {e}")
+
+    def _tool_team_search(self, args: dict) -> str:
+        query = args.get("query", "")
+        team = args.get("team", "")
+        if not query:
+            return tool_error("query is required")
+        if not team:
+            return tool_error("team is required")
+        try:
+            filters: Dict[str, Any] = {"team": team}
+            if args.get("tags"):
+                filters["tags"] = args["tags"]
+            if args.get("kind"):
+                filters["kind"] = args["kind"]
+            if args.get("collection"):
+                filters["collection"] = args["collection"]
+            if args.get("search_strategy"):
+                filters["search_strategy"] = args["search_strategy"]
+            data = self._client.search(
+                query, limit=min(int(args.get("limit", 10)), 50), **filters,
+            )
+            self._record_success()
+            items = data.get("items", [])
+            if not items:
+                return json.dumps({"result": "No relevant team memories found."})
+            results = _format_memory_items(items)
+            out: Dict[str, Any] = {"results": results, "count": len(results), "team": team}
+            for key in _SEARCH_META_KEYS:
+                if key in data:
+                    out[key] = data[key]
+            return json.dumps(out)
+        except Exception as e:
+            self._record_failure()
+            return tool_error(f"Team search failed: {e}")
 
 
 # ---------------------------------------------------------------------------

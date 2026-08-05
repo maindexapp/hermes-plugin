@@ -199,9 +199,9 @@ class TestSystemPrompt:
 
 class TestToolSchemas:
 
-    def test_returns_exactly_twelve_schemas(self, provider):
+    def test_returns_exactly_nineteen_schemas(self, provider):
         p, _ = provider
-        assert len(p.get_tool_schemas()) == 12
+        assert len(p.get_tool_schemas()) == 19
 
     def test_schema_names_match_expected_set(self, provider):
         p, _ = provider
@@ -210,8 +210,12 @@ class TestToolSchemas:
             "maindex_search", "maindex_keep", "maindex_recall",
             "maindex_update", "maindex_forget",
             "maindex_list", "maindex_restore", "maindex_associate",
+            "maindex_unassociate",
             "maindex_collection_list", "maindex_collection_create",
             "maindex_collection_members", "maindex_collection_delete",
+            "maindex_team_list", "maindex_team_collection_create",
+            "maindex_team_members", "maindex_team_invite",
+            "maindex_team_keep", "maindex_team_search",
         }
 
     def test_search_schema_required_unchanged(self, provider):
@@ -290,6 +294,38 @@ class TestToolRouting:
         mock.delete_collection.return_value = {"deleted": True, "shortId": "col-1"}
         p.handle_tool_call("maindex_collection_delete", {"collection_id": "col-1"})
         mock.delete_collection.assert_called_once()
+
+        mock.remove_links_by_ids.return_value = {"removed": [], "notFound": []}
+        p.handle_tool_call("maindex_unassociate", {"link_ids": ["lnk-1"]})
+        mock.remove_links_by_ids.assert_called_once()
+
+        mock.list_teams.return_value = {"items": [{"id": "t1", "slug": "acme", "name": "Acme"}]}
+        p.handle_tool_call("maindex_team_list", {})
+        mock.list_teams.assert_called_once()
+
+        mock.create_team_collection.return_value = {"id": "c1", "slug": "docs"}
+        p.handle_tool_call("maindex_team_collection_create", {"team_id": "t1", "name": "Docs"})
+        mock.create_team_collection.assert_called_once()
+
+        mock.list_team_members.return_value = {"items": []}
+        p.handle_tool_call("maindex_team_members", {"team_id": "t1"})
+        mock.list_team_members.assert_called_once()
+
+        mock.invite_team_member.return_value = {"id": "m1", "role": "editor"}
+        p.handle_tool_call("maindex_team_invite", {
+            "team_id": "t1", "email": "a@b.com", "role": "editor",
+        })
+        mock.invite_team_member.assert_called_once()
+
+        mock.team_keep.return_value = {"id": "x", "shortId": "mem-1"}
+        p.handle_tool_call("maindex_team_keep", {
+            "team": "acme", "collection": "docs", "content": "Hello",
+        })
+        mock.team_keep.assert_called_once()
+
+        mock.search.return_value = {"items": []}
+        p.handle_tool_call("maindex_team_search", {"query": "test", "team": "acme"})
+        assert mock.search.call_count >= 2
 
     def test_unknown_tool_returns_error(self, provider):
         p, _ = provider
@@ -947,3 +983,43 @@ class TestRegister:
         ctx.register_memory_provider.assert_called_once()
         arg = ctx.register_memory_provider.call_args[0][0]
         assert isinstance(arg, MaindexMemoryProvider)
+
+
+class TestToolUnassociate:
+
+    def test_requires_mode(self, provider):
+        p, _ = provider
+        result = json.loads(p._tool_unassociate({}))
+        assert "error" in result
+
+
+class TestToolTeamKeep:
+
+    def test_requires_team_collection_content(self, provider):
+        p, _ = provider
+        result = json.loads(p._tool_team_keep({}))
+        assert "error" in result
+
+    def test_calls_team_keep(self, provider):
+        p, mock = provider
+        mock.team_keep.return_value = {"id": "x", "shortId": "mem-1", "headline": "H"}
+        result = json.loads(p._tool_team_keep({
+            "team": "acme", "collection": "docs", "content": "Body",
+        }))
+        assert result["result"] == "Team memory stored."
+        mock.team_keep.assert_called_once()
+
+
+class TestToolTeamSearch:
+
+    def test_requires_query_and_team(self, provider):
+        p, _ = provider
+        assert "error" in json.loads(p._tool_team_search({}))
+        assert "error" in json.loads(p._tool_team_search({"query": "q"}))
+
+    def test_forwards_team_to_search(self, provider):
+        p, mock = provider
+        mock.search.return_value = {"items": []}
+        p._tool_team_search({"query": "auth", "team": "acme"})
+        _, kwargs = mock.search.call_args
+        assert kwargs["team"] == "acme"

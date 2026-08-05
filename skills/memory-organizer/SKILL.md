@@ -43,7 +43,7 @@ Find memories that should be connected but aren't:
 1. Use `maindex_search` or `maindex_associate` (discover) to find thematically related memories.
 2. Note memories that reference the same project, decision, or concept but aren't explicitly linked.
 3. Suggest specific typed associations (e.g. "mem-1a `supports` mem-3f because...").
-4. With user approval, create links via `maindex_associate` (create).
+4. With user approval, create links via `maindex_associate` (create) or remove stale links via `maindex_unassociate`.
 
 Choose relation types carefully:
 - `supports` / `contradicts` for evidence relationships
@@ -71,7 +71,7 @@ Organize memories into meaningful groups:
 
 1. Identify clusters of related memories (by shared tags, topics, or projects).
 2. Propose new collections or restructuring of existing ones.
-3. Present the plan to the user. Collection management (create, add members) requires the full Expert API beyond the 5 tools available in Hermes. Recommend the user use the [Maindex dashboard](https://maindex.io/dashboard) or an MCP-connected client for collection operations.
+3. With user approval, use `maindex_collection_create` and `maindex_collection_members` for personal collections, or `maindex_team_collection_create` for team collections.
 
 ### 6. Review Canon Status
 

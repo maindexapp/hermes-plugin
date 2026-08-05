@@ -9,10 +9,10 @@ Persistent, relational memory for [Hermes Agent](https://github.com/NousResearch
 | Component | Description |
 | --- | --- |
 | **Memory Provider** | `MemoryProvider` implementation for the Maindex Expert REST API |
-| **11 Agent Tools** | Core five plus `maindex_list`, `maindex_restore`, `maindex_associate`, and collection tools |
+| **19 Agent Tools** | Personal memory, collections, graph links, and team tools |
 | **Agent docs** | [docs/AGENT_MEMORY.md](docs/AGENT_MEMORY.md), [docs/PERSONA_BOOTSTRAP.md](docs/PERSONA_BOOTSTRAP.md) |
 | **Lifecycle Hooks** | Prefetch, optional turn sync (off by default), memory mirroring, pre-compression snapshot |
-| **Skills** | `maindex-core` and `memory-organizer` (optional, copy to `~/.hermes/skills/`) |
+| **Skills** | `maindex-core`, `memory-organizer`, and team skills (optional, copy to `~/.hermes/skills/`) |
 
 ## Prerequisites
 
@@ -159,6 +159,18 @@ Config file: `$HERMES_HOME/maindex.json` (written by `hermes memory setup` or `s
 - **`maindex_collection_create`** — Create a collection.
 - **`maindex_collection_members`** — Add or remove memories from a collection (retroactive membership; not via `maindex_update`).
 - **`maindex_collection_delete`** — Delete a collection by ID or slug.
+
+**Teams** (v1.4.0)
+
+- **`maindex_team_list`** — List your teams or get one team's detail.
+- **`maindex_team_collection_create`** — Create a collection within a team.
+- **`maindex_team_members`** — List team members and pending invites.
+- **`maindex_team_invite`** — Invite a member by email with a role.
+- **`maindex_team_keep`** — Store a memory in a team collection (injection review may apply).
+- **`maindex_team_search`** — Search memories scoped to a team.
+
+Personal tools (`maindex_search`, `maindex_list`, `maindex_keep`) accept an optional `team` param to scope reads/writes. Use `maindex_unassociate` to remove typed links (parity with MCP `memory_unassociate`).
+
 
 ## Development
 

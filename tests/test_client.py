@@ -361,3 +361,130 @@ class TestClose:
     def test_closes_underlying_client(self, client):
         client.close()
         client._client.close.assert_called_once()
+
+
+# ── team param on search/list ────────────────────────────────────────────
+
+
+class TestTeamScopedMemory:
+
+    def test_search_forwards_team_param(self, client):
+        client._client.get.return_value = _mock_response(_envelope([]))
+        client.search("q", team="acme")
+        _, kwargs = client._client.get.call_args
+        assert kwargs["params"]["team"] == "acme"
+
+    def test_list_memories_forwards_team_param(self, client):
+        client._client.get.return_value = _mock_response(_envelope([]))
+        client.list_memories(team="acme", kind="note")
+        _, kwargs = client._client.get.call_args
+        assert kwargs["params"]["team"] == "acme"
+        assert kwargs["params"]["kind"] == "note"
+
+    def test_keep_with_team_routes_to_team_keep(self, client):
+        client._client.post.return_value = _mock_response(
+            _envelope({"id": "1", "shortId": "mem-1"}),
+        )
+        client.keep("HL", body="body text", team="acme", collection="docs")
+        client._client.post.assert_called_once()
+        args, kwargs = client._client.post.call_args
+        assert args[0] == "/v1/team-keep"
+        assert kwargs["json"]["team"] == "acme"
+        assert kwargs["json"]["collection"] == "docs"
+        assert kwargs["json"]["content"] == "body text"
+
+
+# ── unassociate ──────────────────────────────────────────────────────────
+
+
+class TestUnassociate:
+
+    def test_remove_associations(self, client):
+        client._client.request.return_value = _mock_response(
+            _envelope({"removed": [{"id": "lnk-1"}], "notFound": []}),
+        )
+        targets = [{"memory_id": "mem-2", "relation_type": "supports"}]
+        client.remove_associations("mem-1", targets)
+        client._client.request.assert_called_once()
+        args, kwargs = client._client.request.call_args
+        assert args[0] == "DELETE"
+        assert args[1] == "/v1/memories/mem-1/associations"
+        assert kwargs["json"]["targets"] == targets
+
+    def test_remove_links_by_ids(self, client):
+        client._client.request.return_value = _mock_response(
+            _envelope({"removed": [{"id": "lnk-1"}], "notFound": []}),
+        )
+        client.remove_links_by_ids(["lnk-1", "lnk-2"])
+        client._client.request.assert_called_once()
+        args, kwargs = client._client.request.call_args
+        assert args[0] == "DELETE"
+        assert args[1] == "/v1/links"
+        assert kwargs["json"]["link_ids"] == ["lnk-1", "lnk-2"]
+
+
+# ── teams REST ───────────────────────────────────────────────────────────
+
+
+class TestTeams:
+
+    def test_list_teams(self, client):
+        client._client.get.return_value = _mock_response(
+            _envelope([{"id": "t1", "slug": "acme", "name": "Acme"}]),
+        )
+        result = client.list_teams()
+        client._client.get.assert_called_once_with("/v1/teams", params=None)
+        assert len(result["items"]) == 1
+
+    def test_get_team(self, client):
+        client._client.get.return_value = _mock_response(
+            _envelope({"id": "t1", "slug": "acme"}),
+        )
+        client.get_team("t1", include="members,collections")
+        args, kwargs = client._client.get.call_args
+        assert args[0] == "/v1/teams/t1"
+        assert kwargs["params"]["include"] == "members,collections"
+
+    def test_create_team_collection(self, client):
+        client._client.post.return_value = _mock_response(
+            _envelope({"id": "c1", "slug": "docs"}),
+        )
+        client.create_team_collection("t1", "Docs", slug="docs")
+        args, kwargs = client._client.post.call_args
+        assert args[0] == "/v1/teams/t1/collections"
+        assert kwargs["json"] == {"name": "Docs", "slug": "docs"}
+
+    def test_list_team_members(self, client):
+        client._client.get.return_value = _mock_response(_envelope([]))
+        client.list_team_members("t1")
+        client._client.get.assert_called_once_with("/v1/teams/t1/members")
+
+    def test_invite_team_member(self, client):
+        client._client.post.return_value = _mock_response(
+            _envelope({"id": "m1", "role": "editor"}),
+        )
+        client.invite_team_member("t1", "a@b.com", "editor")
+        args, kwargs = client._client.post.call_args
+        assert args[0] == "/v1/teams/t1/invites"
+        assert kwargs["json"] == {"email": "a@b.com", "role": "editor"}
+
+    def test_set_member_role(self, client):
+        client._client.post.return_value = _mock_response(
+            _envelope({"id": "m1", "role": "manager"}),
+        )
+        client.set_member_role("t1", "m1", "manager")
+        args, kwargs = client._client.post.call_args
+        assert args[0] == "/v1/teams/t1/members/m1/role"
+        assert kwargs["json"] == {"role": "manager"}
+
+    def test_team_keep(self, client):
+        client._client.post.return_value = _mock_response(
+            _envelope({"id": "1", "shortId": "mem-1"}),
+        )
+        client.team_keep(team="acme", collection="docs", content="Hello", headline="Hi")
+        args, kwargs = client._client.post.call_args
+        assert args[0] == "/v1/team-keep"
+        assert kwargs["json"]["team"] == "acme"
+        assert kwargs["json"]["collection"] == "docs"
+        assert kwargs["json"]["content"] == "Hello"
+        assert kwargs["json"]["headline"] == "Hi"
