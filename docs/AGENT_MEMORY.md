@@ -53,7 +53,7 @@ After a successful recall, you may cache locally, e.g. `maindex-bootstrap-cache.
 Maintain one **hub** bootstrap memory; store detail in linked memories via
 `maindex_associate` rather than duplicating the full bootstrap in many keeps.
 
-## Tool quick reference (12 tools)
+## Tool quick reference (19 tools)
 
 | Goal | Tool |
 |------|------|
@@ -65,10 +65,20 @@ Maintain one **hub** bootstrap memory; store detail in linked memories via
 | Soft-delete | `maindex_forget` |
 | Undo delete | `maindex_restore` |
 | Create or discover links | `maindex_associate` |
+| Remove typed links | `maindex_unassociate` |
 | List collections | `maindex_collection_list` |
 | Create a collection | `maindex_collection_create` |
 | Add/remove collection members | `maindex_collection_members` |
 | Delete a collection | `maindex_collection_delete` |
+| List teams | `maindex_team_list` |
+| Team collection create | `maindex_team_collection_create` |
+| Team members / invites | `maindex_team_members`, `maindex_team_invite` |
+| Team-scoped write | `maindex_team_keep` |
+| Team-scoped search | `maindex_team_search` |
+
+Teams behavior matches [maindex.io/help/teams/](https://maindex.io/help/teams/). No separate MCP URL — Expert API + optional `team` on personal tools.
+
+Expert-only MCP (`memory_bulk_*`, `memory_supersede`, `collection_unlock`, `system_report_bug`): use Expert MCP or dashboard.
 
 ## Common mistakes (discovery)
 

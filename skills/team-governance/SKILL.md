@@ -9,8 +9,8 @@ You advise team **managers** and **owners** on membership, roles, and governance
 
 | Role | Typical capabilities |
 | --- | --- |
-| **viewer** | Read team memories and collections; may create collections when policy allows |
-| **editor** | Write team memories; invite depends on team invite policy |
+| **viewer** | Read team memories (no team writes; viewers cannot copy team memories to personal collections) |
+| **editor** | Write team memories; create collections when delegated; invite if team policy allows |
 | **manager** | Invite/remove members, change roles (except owner), freeze/unfreeze, review quarantined memories |
 | **owner** | Full control including deletion, ownership transfer, billing resolution |
 

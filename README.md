@@ -1,6 +1,6 @@
 # Maindex — Hermes Agent Memory Provider
 
-Persistent, relational memory for [Hermes Agent](https://github.com/NousResearch/hermes-agent). Connects Hermes to the [Maindex Expert API](https://expert.maindex.io): a structured knowledge graph with multi-tier search, typed associations, collections, and full revision history.
+Persistent, relational memory for [Hermes Agent](https://github.com/NousResearch/hermes-agent). Connects Hermes to the [Maindex Expert API](https://expert.maindex.io): a structured knowledge graph with multi-tier search, typed associations, collections, [Teams](https://maindex.io/help/teams/), and full revision history.
 
 [Website](https://maindex.io) | [Help & FAQ](https://maindex.io/help) | [Dashboard](https://maindex.io/dashboard) | [Expert API Docs](https://expert.maindex.io/docs)
 
@@ -160,7 +160,7 @@ Config file: `$HERMES_HOME/maindex.json` (written by `hermes memory setup` or `s
 - **`maindex_collection_members`** — Add or remove memories from a collection (retroactive membership; not via `maindex_update`).
 - **`maindex_collection_delete`** — Delete a collection by ID or slug.
 
-**Teams** (v1.4.0)
+**Teams** (v1.4.1 — aligns with [Teams help](https://maindex.io/help/teams/))
 
 - **`maindex_team_list`** — List your teams or get one team's detail.
 - **`maindex_team_collection_create`** — Create a collection within a team.

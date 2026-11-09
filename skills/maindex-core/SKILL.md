@@ -48,9 +48,26 @@ Choose the most specific `kind` for each memory:
 
 Maindex returns both `id` (UUID) and `shortId` (e.g. `mem-1jc4`) for every memory. Prefer short IDs in conversation — they are human-readable and token-efficient. Both formats are accepted everywhere.
 
+### Conversations
+
+Include `conversations` when storing memories during a chat session or task. This groups related memories and enables retrieval by conversation context later.
+
+### Superseding, Not Deleting
+
+When a fact or decision changes, supersede rather than deleting and recreating. Use `maindex_update` with `superseded_by` / deprecation fields, or Expert MCP `memory_supersede` from another client. Superseding preserves the history chain.
+
 ### Collections
 
 Group related memories into collections for project-level organization. A memory can belong to multiple collections.
+
+### Teams Workspaces
+
+Team workspaces share the same graph as personal memory, scoped by team slug and role. See skill `team-memory-guide` and [Maindex Teams help](https://maindex.io/help/teams/).
+
+- **Team writes** — `maindex_team_keep` or `maindex_keep` with **both** `team` and `collection`.
+- **Scoped reads** — pass `team` on `maindex_search`, `maindex_list`, or `maindex_recall`; use `"personal"` for personal-only.
+- **Team IDs** — `team-slug:mem-xxxx` alongside `mem-xxxx`.
+- **Frozen teams** — billing/admin freezes can exclude a team from mixed search; check dashboard or owner.
 
 ### Linking
 
@@ -108,8 +125,6 @@ As you work with the user's knowledge:
 - **Suggest organization** when you notice a cluster of related memories that aren't organized together.
 - **Flag stale content** if you encounter memories that seem outdated or contradicted by newer information.
 
-The Hermes plugin exposes 12 tools including associations and collection management. For bulk operations beyond these tools, use the Expert MCP client or the [Maindex dashboard](https://maindex.io/dashboard).
-
 #### Surface Connections
 
 When you find related memories during a search, mention the connections:
@@ -140,6 +155,7 @@ Use this reference to pick the right Maindex tool for the task.
 | Goal | Tool |
 |---|---|
 | Save a new memory | `maindex_keep` |
+| Save to a team collection | `maindex_team_keep` or `maindex_keep` with `team` + `collection` |
 | Append to or revise an existing memory | `maindex_update` |
 
 **Retrieving knowledge:**
@@ -149,6 +165,7 @@ Use this reference to pick the right Maindex tool for the task.
 | Find memories by meaning, keywords, or concepts | `maindex_search` |
 | Browse or filter without a search query | `maindex_list` |
 | Get one specific memory by ID | `maindex_recall` |
+| Search within one team | `maindex_team_search` or `maindex_search` with `team` |
 
 **Organizing knowledge:**
 
@@ -161,6 +178,11 @@ Use this reference to pick the right Maindex tool for the task.
 | Create or discover typed links | `maindex_associate` |
 | List / create / delete collections | `maindex_collection_list`, `maindex_collection_create`, `maindex_collection_delete` |
 | Add or remove collection members | `maindex_collection_members` (not `maindex_update`) |
+| Remove typed links | `maindex_unassociate` |
+| List teams / members / invite | `maindex_team_list`, `maindex_team_members`, `maindex_team_invite` |
+| Create team collection | `maindex_team_collection_create` |
+
+**Hermes REST parity:** 19 `maindex_*` tools cover personal memory, collections, graph links, and teams. For Expert-only MCP tools (`memory_bulk_*`, `memory_supersede`, `collection_unlock`, `system_report_bug`), use [Expert MCP](https://expert.maindex.io/mcp) or the [dashboard](https://maindex.io/dashboard).
 
 ## Tool Details
 
@@ -168,7 +190,7 @@ Use this reference to pick the right Maindex tool for the task.
 Full-text and semantic search. Filter by `tags`, `kind`, and `collection`. Returns relevance-ranked results with scores and match context.
 
 ### maindex_keep
-Create a new memory. Always provide a `headline`. Optionally include `body`, `kind`, `tags`, and `collections`. Not idempotent — calling twice creates two memories.
+Create a new memory. Always provide a `headline`. Optionally include `body`, `kind`, `tags`, and `collections`. For team collection writes, pass **both** `team` and `collection` (or use `maindex_team_keep`). Not idempotent — calling twice creates two memories.
 
 ### maindex_recall
 Get a single memory by UUID or short ID. Returns full content including tags, collections, kind, canon status, and timestamps.

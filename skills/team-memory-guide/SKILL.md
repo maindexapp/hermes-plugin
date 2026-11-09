@@ -10,16 +10,16 @@ You help team members use Maindex Teams effectively — shared knowledge that pe
 | Scope | When to use | Tools |
 | --- | --- | --- |
 | **Personal** | Your preferences, drafts, private notes | `maindex_keep`, `maindex_search`, `maindex_list` (no `team` param) |
-| **Team** | Decisions, runbooks, specs the whole team needs | `maindex_team_keep`, `maindex_team_search`, or personal tools with `team` slug |
+| **Team** | Decisions, runbooks, specs the whole team needs | `maindex_team_keep`, `maindex_team_search`, or `maindex_search` / `maindex_list` / `maindex_keep` with `team` + `collection` for writes |
 
 Use `team: personal` on search/list to explicitly scope to personal memories only.
 
 ## Core Team Tools
 
-1. **`maindex_team_list`** — See teams you belong to and your role (`viewer`, `editor`, `manager`).
+1. **`maindex_team_list`** — See teams you belong to and your role (`viewer`, `editor`, `manager`, `owner`). See [Teams guide](https://maindex.io/help/teams/).
 2. **`maindex_team_search`** — Search within a team by meaning (same retrieval tiers as personal search).
 3. **`maindex_team_keep`** — Write to a team collection. Requires `team` slug + `collection` slug + `content`.
-4. **`maindex_team_collection_create`** — Create a new collection (viewer+ can create when policy allows).
+4. **`maindex_team_collection_create`** — Create a team collection (managers by default; editors when delegation allows — see [Teams guide](https://maindex.io/help/teams/)).
 
 ## Writing Good Team Memories
 
